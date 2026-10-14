@@ -16,6 +16,9 @@ On a Mac, the quickest way: install Docker Desktop, download this repository, an
 `Iniciar RADAR.command` (right-click → Open the first time, because macOS blocks downloaded scripts
 until you confirm). It creates `.env` with random secrets, builds and starts the stack, asks for your
 login password once, and opens http://localhost:8787. `Parar RADAR.command` stops it; data is kept.
+On Windows, extract the ZIP first, then double-click `Iniciar RADAR (Windows).bat` (if SmartScreen
+warns, choose More info → Run anyway); `Parar RADAR (Windows).bat` stops it. It runs
+`scripts/iniciar-radar.ps1`, which does the same steps.
 The steps below are the manual equivalent and the development setup.
 
 Requirements: Node 20+ (22 recommended) and PostgreSQL 14+.

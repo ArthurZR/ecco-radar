@@ -6,7 +6,8 @@ import { fmtDateTime } from '../lib/format';
 import { Empty, ErrorBox, Loading, PageHead, Seg, errorText, useToast } from '../components/ui';
 
 type Mode = 'familiar' | 'adjacent' | 'experimental';
-interface Options { sources: { id: string; name: string; ready: boolean; notReady: string | null }[]; modes: Record<Mode, string[]> }
+interface Options { sources: { id: string; name: string; ready: boolean; notReady: string | null }[]; modes: Record<Mode, string[]>; territories: string[] }
+type HistoryRelation = 'close' | 'balanced' | 'away';
 interface SessionRow {
   id: string; query: string; mode: Mode; source_ids: string[]; status: string; trigger: string; results_count: number; new_count: number;
   error_summary: string | null; created_at: string; started_at: string | null; completed_at: string | null; depth: number; max_queries: number; max_results: number;
@@ -17,7 +18,7 @@ interface Settings { settings: Record<string, { value: boolean }>; ai: { configu
 
 interface Params {
   query: string; concepts: string[]; categories: string[]; mode: Mode; sourceIds: string[]; creator?: string; periodFrom?: number; periodTo?: number;
-  novelty: number; depth: number; maxQueries: number; maxResults: number; useExternalAi: boolean;
+  novelty: number; depth: number; maxQueries: number; maxResults: number; useExternalAi: boolean; maxAiTokens: number; historyRelation: HistoryRelation;
 }
 
 const MODE_TEXT: Record<Mode, string> = {
@@ -33,16 +34,19 @@ const ACTIVE = ['queued', 'running'];
 
 export function ExplorePage() {
   const { id } = useParams();
+  // A preset or schedule loaded into the form. The nonce lets the same one be loaded twice.
+  const [load, setLoad] = useState<Load | null>(null);
   return (
     <>
       <PageHead title="Explore" sub="Bounded, explainable discovery runs" />
       <div className="content">
         {id ? <SessionDetail id={id} /> : null}
         <div className="grid2" style={{ marginTop: id ? 12 : 0 }}>
-          <NewExploration />
+          <NewExploration load={load} onDoneEditing={() => setLoad(null)} />
           <div className="stack lg">
             <SessionList />
-            <Schedules />
+            <Presets onLoad={(params, name) => setLoad({ params, name, nonce: Date.now() })} />
+            <Schedules onEdit={(s) => setLoad({ params: s.params, name: s.name, schedule: s, nonce: Date.now() })} />
           </div>
         </div>
       </div>
@@ -50,39 +54,81 @@ export function ExplorePage() {
   );
 }
 
-function NewExploration() {
+interface Load { params: Params; name: string; schedule?: Schedule; nonce: number }
+
+const DEFAULT_PARAMS: Params = {
+  query: '', concepts: [], categories: [], mode: 'adjacent', sourceIds: [], novelty: 0.5, depth: 1, maxQueries: 8, maxResults: 60,
+  useExternalAi: false, maxAiTokens: 20000, historyRelation: 'balanced',
+};
+const HISTORY_TEXT: Record<HistoryRelation, string> = {
+  close: 'Branches from eccö captions and approved references come first.',
+  balanced: 'eccö history is one source of branches among the others the mode uses.',
+  away: 'No branches from eccö captions or approvals. Ranking still uses your editorial profile.',
+};
+const INTERVALS = [{ v: 60, l: 'hour' }, { v: 360, l: '6 hours' }, { v: 720, l: '12 hours' }, { v: 1440, l: 'day' }, { v: 10080, l: 'week' }];
+const every = (min: number) => (min >= 1440 ? `${min / 1440}d` : `${min / 60}h`);
+
+function NewExploration({ load, onDoneEditing }: { load: Load | null; onDoneEditing: () => void }) {
   const nav = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
   const options = useQuery({ queryKey: ['exploration-options'], queryFn: () => api.get<Options>('/api/exploration/options') });
   const settings = useQuery({ queryKey: ['settings'], queryFn: () => api.get<Settings>('/api/settings') });
   const aiReady = !!settings.data?.ai.configured && !!settings.data?.settings.external_ai_enabled?.value;
-  const [p, setP] = useState<Params>({ query: '', concepts: [], categories: [], mode: 'adjacent', sourceIds: [], novelty: 0.5, depth: 1, maxQueries: 8, maxResults: 60, useExternalAi: false });
+  const [p, setP] = useState<Params>(DEFAULT_PARAMS);
   const [conceptText, setConceptText] = useState('');
   const [schedule, setSchedule] = useState<{ name: string; interval: number; perDay: number } | null>(null);
+  const [presetName, setPresetName] = useState<string | null>(null);
+  const editing = load?.schedule ?? null;
 
   useEffect(() => {
-    if (options.data && p.sourceIds.length === 0) setP((x) => ({ ...x, sourceIds: options.data.sources.filter((s) => s.ready).map((s) => s.id) }));
+    if (options.data && p.sourceIds.length === 0 && !load) setP((x) => ({ ...x, sourceIds: options.data.sources.filter((s) => s.ready).map((s) => s.id) }));
   }, [options.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!load) return;
+    setP({ ...DEFAULT_PARAMS, ...load.params });
+    setConceptText(load.params.concepts.join(', '));
+    setSchedule(load.schedule ? { name: load.schedule.name, interval: load.schedule.interval_minutes, perDay: load.schedule.max_runs_per_day } : null);
+    setPresetName(null);
+  }, [load?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const body = (): Params => ({ ...p, concepts: conceptText.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 10), creator: p.creator || undefined });
+  const fail = (e: unknown) => toast({ text: errorText(e), error: true });
   const run = useMutation({
     mutationFn: () => api.post<{ id: string }>('/api/explorations', body()),
     onSuccess: (r) => { qc.invalidateQueries({ queryKey: ['explorations'] }); nav(`/explore/${r.id}`); },
-    onError: (e) => toast({ text: errorText(e), error: true }),
+    onError: fail,
   });
   const saveSchedule = useMutation({
-    mutationFn: () => api.post('/api/schedules', { name: schedule!.name, enabled: false, params: body(), intervalMinutes: schedule!.interval, maxRunsPerDay: schedule!.perDay }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['schedules'] }); setSchedule(null); toast({ text: 'Schedule saved (off). Turn it on in the list when ready.' }); },
-    onError: (e) => toast({ text: errorText(e), error: true }),
+    mutationFn: () => {
+      const payload = { name: schedule!.name, params: body(), intervalMinutes: schedule!.interval, maxRunsPerDay: schedule!.perDay };
+      return editing ? api.patch(`/api/schedules/${editing.id}`, payload) : api.post('/api/schedules', { ...payload, enabled: false });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['schedules'] });
+      setSchedule(null);
+      toast({ text: editing ? 'Schedule updated. Its next run uses these settings.' : 'Schedule saved (off). Turn it on in the list when ready.' });
+      if (editing) onDoneEditing();
+    },
+    onError: fail,
+  });
+  const savePreset = useMutation({
+    mutationFn: () => api.post('/api/saved-searches', { name: presetName!, scope: 'exploration', params: body() }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['saved-searches'] }); setPresetName(null); toast({ text: 'Exploration saved. Load it again from Saved explorations.' }); },
+    onError: fail,
   });
 
   const submit = (e: FormEvent) => { e.preventDefault(); run.mutate(); };
   const canRun = p.query.trim().length > 0 && p.sourceIds.length > 0;
+  const toggleCategory = (c: string) => setP({ ...p, categories: p.categories.includes(c) ? p.categories.filter((x) => x !== c) : [...p.categories, c].slice(0, 10) });
 
   return (
     <form className="panel" onSubmit={submit}>
-      <header><h2>New exploration</h2></header>
+      <header>
+        <h2>{editing ? `Editing schedule “${editing.name}”` : 'New exploration'}</h2>
+        {load && !editing ? <span className="small muted">loaded “{load.name}”</span> : null}
+        {editing ? <button type="button" className="sm ghost" onClick={() => { onDoneEditing(); setSchedule(null); }}>Stop editing</button> : null}
+      </header>
       <div className="body stack">
         <label className="field"><span>Starting point</span>
           <input value={p.query} onChange={(e) => setP({ ...p, query: e.target.value })} placeholder="e.g. Y2K web interfaces, Memphis Group, rave flyers" required maxLength={300} />
@@ -90,9 +136,21 @@ function NewExploration() {
         <label className="field"><span>Extra concepts (comma separated, optional)</span>
           <input value={conceptText} onChange={(e) => setConceptText(e.target.value)} placeholder="chrome type, pixel fonts" />
         </label>
+        <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
+          <legend className="small muted">Cultural categories (optional; each one is searched as its own starting branch)</legend>
+          <div className="row tight chips">
+            {options.data?.territories.map((c) => (
+              <button key={c} type="button" className="sm chip" aria-pressed={p.categories.includes(c)} onClick={() => toggleCategory(c)}>{c}</button>
+            ))}
+          </div>
+        </fieldset>
         <div>
           <Seg label="Mode" value={p.mode} onChange={(mode) => setP({ ...p, mode })} options={[{ value: 'familiar', label: 'Familiar' }, { value: 'adjacent', label: 'Adjacent' }, { value: 'experimental', label: 'Experimental' }]} />
           <p className="small muted" style={{ marginTop: 4 }}>{MODE_TEXT[p.mode]} Expansion uses: {options.data?.modes[p.mode].map((o) => ORIGIN_TEXT[o] ?? o).join(', ')}.</p>
+        </div>
+        <div>
+          <Seg label="Relationship to eccö history" value={p.historyRelation} onChange={(historyRelation) => setP({ ...p, historyRelation })} options={[{ value: 'close', label: 'Close to eccö history' }, { value: 'balanced', label: 'Balanced' }, { value: 'away', label: 'Away from it' }]} />
+          <p className="small muted" style={{ marginTop: 4 }}>{HISTORY_TEXT[p.historyRelation]}</p>
         </div>
         <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
           <legend className="small muted">Sources</legend>
@@ -118,36 +176,82 @@ function NewExploration() {
           <label className="field"><span>Depth</span>
             <select value={p.depth} onChange={(e) => setP({ ...p, depth: Number(e.target.value) })}>{[0, 1, 2, 3].map((n) => <option key={n} value={n}>{n}{n === 0 ? ' (query only)' : ''}</option>)}</select>
           </label>
-          <label className="field"><span>Max queries</span><input type="number" min={1} max={40} value={p.maxQueries} onChange={(e) => setP({ ...p, maxQueries: Math.max(1, Math.min(40, Number(e.target.value))) })} style={{ width: 70 }} /></label>
+          <label className="field"><span>Max searches</span><input type="number" min={1} max={40} value={p.maxQueries} onChange={(e) => setP({ ...p, maxQueries: Math.max(1, Math.min(40, Number(e.target.value))) })} style={{ width: 70 }} /></label>
           <label className="field"><span>Max results</span><input type="number" min={1} max={500} value={p.maxResults} onChange={(e) => setP({ ...p, maxResults: Math.max(1, Math.min(500, Number(e.target.value))) })} style={{ width: 80 }} /></label>
         </div>
         <label className="check" title={aiReady ? '' : 'Configure an AI provider and enable it in Settings first'}>
           <input type="checkbox" disabled={!aiReady} checked={p.useExternalAi && aiReady} onChange={(e) => setP({ ...p, useExternalAi: e.target.checked })} />
           Let the AI provider suggest extra queries (experimental mode only; sends the query text, nothing else)
         </label>
+        {p.useExternalAi && aiReady ? (
+          <label className="field"><span>Most AI tokens this run may spend</span>
+            <input type="number" min={0} max={200000} step={1000} value={p.maxAiTokens} onChange={(e) => setP({ ...p, maxAiTokens: Math.max(0, Math.min(200000, Number(e.target.value))) })} style={{ width: 110 }} />
+          </label>
+        ) : null}
         {!aiReady ? <p className="small muted" style={{ marginTop: -4 }}>AI suggestions are off: {settings.data?.ai.configured ? 'enable external AI in Settings.' : 'no AI provider key is configured on the server.'}</p> : null}
+        <p className="small muted" style={{ marginTop: -4 }}>
+          Processing limits for this run: at most {p.maxQueries} searches across the chosen sources, {p.maxResults} new references
+          {p.useExternalAi && aiReady ? `, and ${p.maxAiTokens.toLocaleString('en')} AI tokens (the daily AI limit in Settings also applies)` : ', and no AI'}.
+          Image analysis and text reading run locally and cost nothing external.
+        </p>
         <div className="row">
           <button className="primary" type="submit" disabled={!canRun || run.isPending}>{run.isPending ? 'Starting…' : 'Run exploration'}</button>
-          <button type="button" disabled={!canRun} onClick={() => setSchedule({ name: p.query, interval: 24 * 60, perDay: 1 })}>Save as schedule…</button>
+          {editing ? (
+            <button type="button" disabled={!canRun || !schedule?.name.trim() || saveSchedule.isPending} onClick={() => saveSchedule.mutate()}>Update schedule</button>
+          ) : (
+            <button type="button" disabled={!canRun} onClick={() => setSchedule({ name: p.query, interval: 24 * 60, perDay: 1 })}>Save as schedule…</button>
+          )}
+          {!editing ? <button type="button" className="ghost" disabled={!canRun} onClick={() => setPresetName(p.query)}>Save for later…</button> : null}
         </div>
+        {presetName !== null ? (
+          <div className="notice stack">
+            <label className="field"><span>Name for this exploration</span><input value={presetName} maxLength={120} onChange={(e) => setPresetName(e.target.value)} /></label>
+            <div className="row"><button type="button" className="primary sm" disabled={!presetName.trim() || savePreset.isPending} onClick={() => savePreset.mutate()}>Save</button><button type="button" className="sm" onClick={() => setPresetName(null)}>Cancel</button></div>
+          </div>
+        ) : null}
         {schedule ? (
           <div className="notice stack">
             <b>Background schedule</b>
-            <p className="small">Schedules are created switched off. When on, they run in the background within these limits and respect the global pause in Settings.</p>
+            <p className="small">{editing ? 'Changes apply from the next run.' : 'Schedules are created switched off.'} When on, they run in the background within these limits and respect the global pause in Settings.</p>
             <div className="row">
               <label className="field"><span>Name</span><input value={schedule.name} onChange={(e) => setSchedule({ ...schedule, name: e.target.value })} /></label>
               <label className="field"><span>Every</span>
                 <select value={schedule.interval} onChange={(e) => setSchedule({ ...schedule, interval: Number(e.target.value) })}>
-                  <option value={60}>hour</option><option value={360}>6 hours</option><option value={720}>12 hours</option><option value={1440}>day</option><option value={10080}>week</option>
+                  {INTERVALS.map((i) => <option key={i.v} value={i.v}>{i.l}</option>)}
                 </select>
               </label>
               <label className="field"><span>Max runs/day</span><input type="number" min={1} max={24} value={schedule.perDay} onChange={(e) => setSchedule({ ...schedule, perDay: Number(e.target.value) })} style={{ width: 70 }} /></label>
             </div>
-            <div className="row"><button type="button" className="primary sm" disabled={!schedule.name.trim() || saveSchedule.isPending} onClick={() => saveSchedule.mutate()}>Save schedule</button><button type="button" className="sm" onClick={() => setSchedule(null)}>Cancel</button></div>
+            {!editing ? <div className="row"><button type="button" className="primary sm" disabled={!schedule.name.trim() || saveSchedule.isPending} onClick={() => saveSchedule.mutate()}>Save schedule</button><button type="button" className="sm" onClick={() => setSchedule(null)}>Cancel</button></div> : null}
           </div>
         ) : null}
       </div>
     </form>
+  );
+}
+
+function Presets({ onLoad }: { onLoad: (p: Params, name: string) => void }) {
+  const qc = useQueryClient();
+  const list = useQuery({ queryKey: ['saved-searches'], queryFn: () => api.get<{ id: string; name: string; scope: string; params: Params }[]>('/api/saved-searches') });
+  const del = useMutation({ mutationFn: (id: string) => api.del(`/api/saved-searches/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: ['saved-searches'] }) });
+  const items = list.data?.filter((s) => s.scope === 'exploration') ?? [];
+  return (
+    <section className="panel">
+      <header><h2>Saved explorations</h2></header>
+      <div className="body">
+        <ErrorBox error={list.error} retry={() => list.refetch()} />
+        {list.data && !items.length ? <p className="small muted">None yet. Use “Save for later…” to keep a set of settings and run it again whenever you want.</p> : null}
+        {items.map((s) => (
+          <div key={s.id} className="row between" style={{ borderTop: '1px solid var(--rule)', padding: '6px 0' }}>
+            <div><b>{s.name}</b> <span className="small muted">“{s.params.query}” · {s.params.mode}{s.params.categories?.length ? ` · ${s.params.categories.join(', ')}` : ''}</span></div>
+            <div className="row tight">
+              <button className="sm" onClick={() => onLoad(s.params, s.name)}>Load</button>
+              <button className="sm ghost" onClick={() => window.confirm(`Delete “${s.name}”?`) && del.mutate(s.id)}>Delete</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -242,7 +346,8 @@ function SessionDetail({ id }: { id: string }) {
       <div className="body stack">
         <div className="row small">
           <span>{s.results_count} results · <b>{s.new_count} new</b></span>
-          <span className="muted">limits: depth {s.depth}, {s.max_queries} queries, {s.max_results} results</span>
+          <span className="muted">limits: depth {s.depth}, {s.max_queries} searches, {s.max_results} results{s.use_external_ai ? `, ${Number(s.max_ai_tokens).toLocaleString('en')} AI tokens (used ${Number(s.ai_tokens_used).toLocaleString('en')})` : ''}</span>
+          {s.history_relation !== 'balanced' ? <span className="muted">eccö history: {s.history_relation === 'close' ? 'stay close' : 'move away'}</span> : null}
           <span className="muted">sources: {s.source_ids.join(', ')}</span>
           {s.results_count > 0 ? <Link to={`/?sessionId=${s.id}&status=discovered,saved,approved_consideration,rejected,archived`}>View results in RADAR →</Link> : null}
         </div>
@@ -255,14 +360,23 @@ function SessionDetail({ id }: { id: string }) {
   );
 }
 
-function Schedules() {
+function Schedules({ onEdit }: { onEdit: (s: Schedule) => void }) {
   const qc = useQueryClient();
   const toast = useToast();
+  const nav = useNavigate();
   const list = useQuery({ queryKey: ['schedules'], queryFn: () => api.get<Schedule[]>('/api/schedules') });
   const settings = useQuery({ queryKey: ['settings'], queryFn: () => api.get<Settings>('/api/settings') });
   const toggle = useMutation({
-    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => api.patch(`/api/schedules/${id}`, { enabled }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['schedules'] }),
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => api.patch<{ stoppedRuns: number }>(`/api/schedules/${id}`, { enabled }),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ['schedules'] });
+      if (r.stoppedRuns) { qc.invalidateQueries({ queryKey: ['explorations'] }); toast({ text: `Schedule off. Stopped ${r.stoppedRuns} unfinished run${r.stoppedRuns === 1 ? '' : 's'}.` }); }
+    },
+    onError: (e) => toast({ text: errorText(e), error: true }),
+  });
+  const runNow = useMutation({
+    mutationFn: (id: string) => api.post<{ id: string }>(`/api/schedules/${id}/run`),
+    onSuccess: (r) => { qc.invalidateQueries({ queryKey: ['explorations'] }); qc.invalidateQueries({ queryKey: ['schedules'] }); nav(`/explore/${r.id}`); },
     onError: (e) => toast({ text: errorText(e), error: true }),
   });
   const del = useMutation({
@@ -279,11 +393,17 @@ function Schedules() {
         {list.data?.map((s) => (
           <div key={s.id} className="row between" style={{ borderTop: '1px solid var(--rule)', padding: '6px 0' }}>
             <div>
-              <b>{s.name}</b> <span className="small muted">“{s.params.query}” · {s.params.mode} · every {s.interval_minutes >= 1440 ? `${s.interval_minutes / 1440}d` : `${s.interval_minutes / 60}h`} · ≤{s.max_runs_per_day}/day</span>
+              <b>{s.name}</b> <span className="small muted">“{s.params.query}” · {s.params.mode} · every {every(s.interval_minutes)} · ≤{s.max_runs_per_day}/day</span>
+              <div className="small muted">
+                {s.params.sourceIds.join(', ')} · depth {s.params.depth} · ≤{s.params.maxQueries} searches · ≤{s.params.maxResults} results ·{' '}
+                {s.params.useExternalAi ? `AI on, ≤${(s.params.maxAiTokens ?? 20000).toLocaleString('en')} tokens/run` : 'no AI'}
+              </div>
               <div className="small muted">Last run {fmtDateTime(s.last_run_at)} · next {s.enabled ? fmtDateTime(s.next_run_at) : '—'}</div>
             </div>
             <div className="row tight">
               <label className="check"><input type="checkbox" checked={s.enabled} onChange={(e) => toggle.mutate({ id: s.id, enabled: e.target.checked })} /> On</label>
+              <button className="sm" disabled={runNow.isPending} onClick={() => runNow.mutate(s.id)}>Run now</button>
+              <button className="sm" onClick={() => onEdit(s)}>Edit</button>
               <button className="sm ghost" onClick={() => window.confirm(`Delete schedule “${s.name}”?`) && del.mutate(s.id)}>Delete</button>
             </div>
           </div>

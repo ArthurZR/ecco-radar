@@ -46,6 +46,8 @@ export interface FeedItem {
   originalUrl: string;
   previewUrl: string | null;
   thumbnailUrl: string | null;
+  /** Same-origin copy kept where reuse is permitted; null otherwise. */
+  cachedPreviewUrl: string | null;
   mediaType: string;
   width: number | null;
   height: number | null;
@@ -116,7 +118,7 @@ function toItem(r: Row, s: ScoreResult | null, redundancy: FeedItem['redundancy'
   return {
     id: r.id, refNumber: r.ref_number, refLabel: formatRefNumber(r.ref_number), title: r.title, creatorName: r.creator_name,
     sourceId: r.source_id, sourceName: r.source_name, originalUrl: r.original_url, previewUrl: r.preview_url,
-    thumbnailUrl: r.thumbnail_url, mediaType: r.media_type, width: r.width, height: r.height, publishedRaw: r.published_raw,
+    thumbnailUrl: r.thumbnail_url, cachedPreviewUrl: r.cached_preview_path ? `/api/references/${r.ref_number}/cached-preview` : null, mediaType: r.media_type, width: r.width, height: r.height, publishedRaw: r.published_raw,
     publishedDate: r.published_date, publishedPrecision: r.published_precision, discoveredAt: r.discovered_at,
     status: r.status, attributionStatus: r.attribution_status, tags: r.tags, duplicateCandidates: r.dup_count,
     score: score ?? s?.total ?? null, reasons: s?.reasons ?? [], caveats: s?.caveats ?? [], redundancy,

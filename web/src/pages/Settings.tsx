@@ -17,9 +17,9 @@ interface Prefs {
   resets: { id: string; reset_at: string; note: string | null; undone_at: string | null }[];
 }
 interface Settings {
-  settings: Record<'external_ai_enabled' | 'background_paused' | 'visual_analysis_enabled' | 'text_detection_enabled', { value: boolean; description: string }>;
+  settings: Record<'external_ai_enabled' | 'background_paused' | 'visual_analysis_enabled' | 'text_detection_enabled' | 'preview_caching_enabled', { value: boolean; description: string }>;
   textDetection: { found: number; none: number; failed: number; pending: number; confirmed: number; corrected: number; rejected: number; model: string };
-  visual: { analysed: number; failed: number; pending: number; no_preview: number; model: string; hashModel: string };
+  visual: { analysed: number; failed: number; pending: number; no_preview: number; cached: number; model: string; hashModel: string };
   ai: { configured: boolean; provider: string | null; model: string | null; usageLast30Days: { provider: string; model: string; purpose: string; calls: number; succeeded: number; input_tokens: number; output_tokens: number }[]; budget: { limit: number | null; usedLast24h: number } };
   publishing: string;
 }
@@ -131,6 +131,11 @@ function General() {
             <p className="small muted">{s.settings.visual_analysis_enabled.description} It measures colour, tone and layout structure only; it does not recognise subjects or style.</p>
             <p className="small">{s.visual.analysed} analysed · {s.visual.pending} waiting · {s.visual.failed} failed · {s.visual.no_preview} without a preview</p>
             {s.visual.failed ? <div><button className="sm" disabled={retry.isPending} onClick={() => retry.mutate()}>Retry failed images</button></div> : null}
+            <label className="check">
+              <input type="checkbox" checked={s.settings.preview_caching_enabled.value} onChange={(e) => set.mutate({ key: 'preview_caching_enabled', value: e.target.checked })} />
+              Keep local copies of openly licensed previews
+            </label>
+            <p className="small muted">{s.settings.preview_caching_enabled.description} Copies are made when a preview is analysed. {s.visual.cached} kept so far.</p>
           </div>
         </section>
         <section className="panel">

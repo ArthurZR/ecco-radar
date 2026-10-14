@@ -132,6 +132,8 @@ label.check { display: inline-flex; gap: 6px; align-items: center; font-size: 13
 .seg button { border: 0; border-right: 1px solid var(--black); border-radius: 0; }
 .seg button:last-child { border-right: 0; }
 .seg button[aria-pressed='true'] { background: var(--black); color: var(--white); }
+.chips { flex-wrap: wrap; }
+.chip[aria-pressed='true'] { background: var(--green); border-color: var(--green); color: var(--black); }
 
 /* ---------- panels, tables ---------- */
 .panel { border: 1px solid var(--black); background: var(--white); }
@@ -323,3 +325,9 @@ ul.plain a { overflow-wrap: anywhere; }
 .detected-text p { margin: 0; }
 .ocr-text { margin: 0; padding: 6px 8px; border: 1px solid var(--rule); background: var(--panel); font: 12px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
 .ocr-text.rejected { text-decoration: line-through; color: var(--ink-2); }
+.drafts-mini { list-style: none; padding: 0; margin: 0 0 10px; display: grid; gap: 6px; }
+.drafts-mini li { border-left: 2px solid var(--rule); padding-left: 8px; }
+.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 700px) { .compare { grid-template-columns: 1fr; } }
+.graph-edges { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+.graph-edges .sep { color: var(--ink-3); }

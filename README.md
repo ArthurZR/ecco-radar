@@ -181,5 +181,14 @@ new references, which is one more reason to back up daily and before every upgra
   only after you confirm or correct it on the reference page. Turn it off in Settings.
 - **Instagram is not a source.** Its API does not allow searching other accounts, and scraping is not
   permitted. Instagram data only enters through your own exported analytics.
-- **Images are hot-linked** from their sources with no referrer; RADAR does not store copies.
+- **Images are hot-linked** from their sources with no referrer. RADAR keeps a small local copy
+  (640px WebP, in `MEDIA_DIR/previews`) only for items whose licence permits reuse (public domain,
+  CC0, CC BY, CC BY-SA) or whose source allows caching, and shows it only when the original link
+  fails. Everything else is never stored. Turn copies off in Settings → Image analysis.
+- **Processing cost is bounded per run, not priced.** Each exploration (and each schedule) has a
+  maximum number of searches, new references and AI tokens; the daily AI limit in Settings applies
+  on top. RADAR records tokens, not money, because provider prices change.
+- **Inferred cultural connections are simple name matches.** When a new reference's title or
+  description names an entity already in the graph, RADAR suggests an "associated with" link marked
+  *inferred*. It has no effect on ranking until you confirm or correct it.
 - The UI is light-mode only for now.

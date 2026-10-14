@@ -12,6 +12,8 @@ export interface TextGenerationRequest {
   system: string;
   prompt: string;
   maxTokens?: number;
+  /** The exploration run this call belongs to, so its spend can be capped and shown. */
+  explorationSessionId?: string;
 }
 
 export interface TextGenerationProvider {
@@ -27,11 +29,20 @@ export class AiUnavailableError extends Error {
   }
 }
 
-async function recordUsage(provider: string, model: string, purpose: string, ok: boolean, input?: number, output?: number, error?: string) {
+async function recordUsage(provider: string, model: string, req: TextGenerationRequest, ok: boolean, input?: number, output?: number, error?: string) {
   await db().query(
-    `INSERT INTO ai_usage(provider, model, purpose, input_tokens, output_tokens, succeeded, error) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-    [provider, model, purpose, input ?? null, output ?? null, ok, error?.slice(0, 500) ?? null],
+    `INSERT INTO ai_usage(provider, model, purpose, input_tokens, output_tokens, succeeded, error, exploration_session_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [provider, model, req.purpose, input ?? null, output ?? null, ok, error?.slice(0, 500) ?? null, req.explorationSessionId ?? null],
   );
+}
+
+/** AI tokens (input + output) recorded for one exploration run. */
+export async function sessionAiTokens(sessionId: string): Promise<number> {
+  const r = await db().query<{ used: number }>(
+    `SELECT coalesce(sum(coalesce(input_tokens,0) + coalesce(output_tokens,0)),0)::int AS used FROM ai_usage WHERE exploration_session_id = $1`,
+    [sessionId],
+  );
+  return r.rows[0]!.used;
 }
 
 export class AnthropicProvider implements TextGenerationProvider {
@@ -53,7 +64,7 @@ export class AnthropicProvider implements TextGenerationProvider {
         system: req.system,
         messages: [{ role: 'user', content: req.prompt }],
       });
-      await recordUsage(this.name, response.model, req.purpose, response.stop_reason !== 'refusal', response.usage.input_tokens, response.usage.output_tokens);
+      await recordUsage(this.name, response.model, req, response.stop_reason !== 'refusal', response.usage.input_tokens, response.usage.output_tokens);
       if (response.stop_reason === 'refusal') throw new AiUnavailableError('The AI provider declined this request.');
       const text = response.content
         .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text')
@@ -70,7 +81,7 @@ export class AnthropicProvider implements TextGenerationProvider {
         : err instanceof Anthropic.APIConnectionError ? 'Could not reach the AI provider.'
         : err instanceof Anthropic.APIError ? `AI provider error (${err.status ?? 'unknown'}).`
         : 'AI generation failed.';
-      await recordUsage(this.name, this.model, req.purpose, false, undefined, undefined, message);
+      await recordUsage(this.name, this.model, req, false, undefined, undefined, message);
       throw new AiUnavailableError(message);
     }
   }

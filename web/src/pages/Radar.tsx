@@ -6,6 +6,8 @@ import { STATUS_LABEL, type FeedItem, type FeedResponse, type Status } from '../
 import { fmtNum } from '../lib/format';
 import { Dialog, Empty, ErrorBox, Loading, PageHead, Seg, StatusBadge, Thumb, errorText, useToast } from '../components/ui';
 import { RejectDialog, useStatusChange } from '../components/StatusActions';
+import { ReportDialog } from '../components/ReportDialog';
+import type { SourceInfo } from '../lib/types';
 import { isTyping } from '../App';
 
 interface Facets {
@@ -70,6 +72,7 @@ export function RadarPage() {
 
   const [sel, setSel] = useState(0);
   const [rejecting, setRejecting] = useState<FeedItem | null>(null);
+  const [reporting, setReporting] = useState<FeedItem | null>(null);
   const [help, setHelp] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [view, setViewState] = useState<View>(readView);
@@ -95,7 +98,7 @@ export function RadarPage() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (isTyping(e) || e.metaKey || e.ctrlKey || e.altKey || rejecting) return;
+      if (isTyping(e) || e.metaKey || e.ctrlKey || e.altKey || rejecting || reporting) return;
       const item = items[sel];
       switch (e.key) {
         case 'j': setSel((s) => Math.min(items.length - 1, s + 1)); break;
@@ -104,6 +107,7 @@ export function RadarPage() {
         case 's': if (item) act(item, 'saved'); break;
         case 'a': if (item) act(item, 'approved_consideration'); break;
         case 'x': if (item) act(item, 'rejected'); break;
+        case 'r': if (item) setReporting(item); break;
         case 'h': if (item) act(item, 'archived'); break;
         case '/': e.preventDefault(); searchRef.current?.focus(); break;
         case 'v': setView(view === 'dense' ? 'research' : 'dense'); break;
@@ -113,7 +117,7 @@ export function RadarPage() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [items, sel, act, nav, rejecting, view, setView]);
+  }, [items, sel, act, nav, rejecting, reporting, view, setView]);
 
   // Load more when the sentinel scrolls into view
   const sentinel = useRef<HTMLDivElement>(null);
@@ -250,6 +254,7 @@ export function RadarPage() {
           </aside>
 
           <section aria-label="References">
+            <SourceHealth />
             <ErrorBox error={feed.error} retry={() => feed.refetch()} />
             {feed.isLoading ? <Loading label="Ranking references" /> : null}
             {!feed.isLoading && !feed.error && items.length === 0 ? (
@@ -264,13 +269,13 @@ export function RadarPage() {
             {view === 'dense' ? (
               <Masonry>
                 {items.map((it, i) => (
-                  <FeedCard key={it.id} item={it} idx={i} selected={i === sel} onSelect={() => setSel(i)} onAct={act} />
+                  <FeedCard key={it.id} item={it} idx={i} selected={i === sel} onSelect={() => setSel(i)} onAct={act} onReport={setReporting} />
                 ))}
               </Masonry>
             ) : (
               <div className="research-list">
                 {items.map((it, i) => (
-                  <FeedCard key={it.id} item={it} idx={i} selected={i === sel} onSelect={() => setSel(i)} onAct={act} detailed />
+                  <FeedCard key={it.id} item={it} idx={i} selected={i === sel} onSelect={() => setSel(i)} onAct={act} onReport={setReporting} detailed />
                 ))}
               </div>
             )}
@@ -284,6 +289,7 @@ export function RadarPage() {
         </div>
       </div>
 
+      {reporting ? <ReportDialog refLabel={reporting.refLabel} onClose={() => setReporting(null)} /> : null}
       {rejecting ? (
         <RejectDialog
           refLabel={rejecting.refLabel}
@@ -324,12 +330,12 @@ const ATTRIBUTION_LABEL: Record<string, string> = {
   reported_incorrect: 'Attribution reported incorrect', unknown: 'Creator not stated by the source',
 };
 
-function FeedCard({ item, idx, selected, onSelect, onAct, detailed = false }: { item: FeedItem; idx: number; selected: boolean; onSelect: () => void; onAct: (i: FeedItem, s: Status) => void; detailed?: boolean }) {
+function FeedCard({ item, idx, selected, onSelect, onAct, onReport, detailed = false }: { item: FeedItem; idx: number; selected: boolean; onSelect: () => void; onAct: (i: FeedItem, s: Status) => void; onReport: (i: FeedItem) => void; detailed?: boolean }) {
   const ratio = item.width && item.height ? `${item.width} / ${item.height}` : undefined;
   return (
     <article className={`card ${selected ? 'selected' : ''}`} data-idx={idx} onMouseDown={onSelect} aria-label={`${item.refLabel} ${item.title ?? ''}`}>
       <Link to={`/ref/${item.refNumber}`} className="media" style={ratio ? { aspectRatio: ratio } : undefined} tabIndex={-1}>
-        <Thumb src={item.thumbnailUrl ?? item.previewUrl} alt={item.title ?? item.refLabel} />
+        <Thumb src={item.thumbnailUrl ?? item.previewUrl} fallback={item.cachedPreviewUrl} alt={item.title ?? item.refLabel} />
         <div className="overlay">
           {item.duplicateCandidates > 0 ? <span className="badge warn" title="Likely duplicate of another reference">DUP?</span> : null}
           {item.mediaType !== 'image' ? <span className="badge">{item.mediaType}</span> : null}
@@ -366,6 +372,7 @@ function FeedCard({ item, idx, selected, onSelect, onAct, detailed = false }: { 
         <button onClick={() => onAct(item, 'saved')} disabled={item.status === 'saved'} title="Save for research (s)">Save</button>
         <button onClick={() => onAct(item, 'approved_consideration')} disabled={item.status === 'approved_consideration'} title="Approve for editorial consideration (a)">Approve</button>
         <button onClick={() => onAct(item, 'rejected')} disabled={item.status === 'rejected'} title="Reject with a reason (x)">Reject</button>
+        <button onClick={() => onReport(item)} title="Report wrong attribution, an irrelevant recommendation or a duplicate (r)">Report</button>
         <a className="btn" href={item.originalUrl} target="_blank" rel="noopener noreferrer" title="Open the original page" style={{ flex: 1, border: 0, borderRadius: 0, justifyContent: 'center', padding: '6px 2px', fontSize: 11, fontFamily: 'var(--mono)' }}>Source ↗</a>
       </div>
     </article>
@@ -416,12 +423,28 @@ function SavedSearches({ params, onApply }: { params: Record<string, string>; on
 function ShortcutHelp({ onClose }: { onClose: () => void }) {
   const rows: [string, string][] = [
     ['j / k', 'Next / previous reference'], ['o or Enter', 'Open detail'], ['s', 'Save for research'], ['a', 'Approve for editorial consideration'],
-    ['x', 'Reject (asks for a reason)'], ['h', 'Archive'], ['v', 'Switch dense / research view'], ['/', 'Focus search'], ['g then r/e/a/c/i/s', 'Go to RADAR / Explore / Archive / Studio / Insights / Sources'],
+    ['x', 'Reject (asks for a reason)'], ['r', 'Report a problem (attribution, irrelevant, duplicate)'], ['h', 'Archive'], ['v', 'Switch dense / research view'], ['/', 'Focus search'], ['g then r/e/a/c/i/s', 'Go to RADAR / Explore / Archive / Studio / Insights / Sources'],
   ];
   return (
     <Dialog title="Keyboard shortcuts" onClose={onClose}>
       <table className="data"><tbody>{rows.map(([k, v]) => <tr key={k}><td><kbd>{k}</kbd></td><td>{v}</td></tr>)}</tbody></table>
       <p className="small muted">Every status change shows an Undo for a few seconds and is recorded in the reference’s history.</p>
     </Dialog>
+  );
+}
+
+/**
+ * Says when a source RADAR searches is down or rate-limited, so a thin feed is not mistaken for a
+ * lack of material. Sources still waiting for a key are listed on the Sources page instead.
+ */
+function SourceHealth() {
+  const q = useQuery({ queryKey: ['sources'], queryFn: () => api.get<{ sources: SourceInfo[] }>('/api/sources'), staleTime: 60_000 });
+  const troubled = (q.data?.sources ?? []).filter((s) => s.enabled && s.searchable && ['unavailable', 'rate_limited'].includes(s.status));
+  if (!troubled.length) return null;
+  const say = (s: SourceInfo) => `${s.name} ${s.status === 'unavailable' ? 'is unavailable' : 'is rate-limited'}`;
+  return (
+    <p className="notice warn small" role="status">
+      {troubled.map(say).join('; ')}. Explorations get no new results from {troubled.length === 1 ? 'it' : 'them'} until that clears; references already found stay here. <Link to="/sources">Sources</Link>
+    </p>
   );
 }

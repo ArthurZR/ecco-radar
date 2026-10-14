@@ -56,7 +56,7 @@ export async function sourceRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.post('/api/sources/rss/feeds', async (req) => {
+  app.post('/api/sources/rss/feeds', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req) => {
     const body = z.object({ url: z.string().url().max(2000) }).parse(req.body);
     try {
       assertSafeUrlShape(body.url);

@@ -34,12 +34,12 @@ const optionsFrom = (fields: Record<string, string>) => {
 };
 
 export async function importRoutes(app: FastifyInstance): Promise<void> {
-  app.post('/api/imports/inspect', async (req) => {
+  app.post('/api/imports/inspect', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req) => {
     const { buf, filename } = await readUpload(req);
     return inspectCsv(buf, filename);
   });
 
-  app.post('/api/imports/preview', async (req) => {
+  app.post('/api/imports/preview', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req) => {
     const { buf, fields } = await readUpload(req);
     const v = await validateImport(buf, optionsFrom(fields));
     // Return the rows that need attention plus a small sample; the file itself is not stored.
@@ -51,7 +51,7 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.post('/api/imports/commit', async (req) => {
+  app.post('/api/imports/commit', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req) => {
     const { buf, filename, fields } = await readUpload(req);
     return commitImport(buf, filename, optionsFrom(fields), req.user!.id);
   });

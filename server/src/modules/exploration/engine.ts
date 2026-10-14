@@ -13,7 +13,7 @@ import { getActiveRankingConfig } from '../ranking/config.js';
 import { getEditorialProfile } from '../ranking/profile.js';
 import { scoreReference } from '../ranking/score.js';
 import { expandQuery, type Expansion } from './expansion.js';
-import { getTextProvider } from '../../ai/provider.js';
+import { getTextProvider, sessionAiTokens } from '../../ai/provider.js';
 
 export const ExplorationParamsSchema = z.object({
   query: z.string().trim().min(1).max(300),
@@ -29,6 +29,10 @@ export const ExplorationParamsSchema = z.object({
   maxQueries: z.number().int().min(1).max(40).default(8),
   maxResults: z.number().int().min(1).max(500).default(60),
   useExternalAi: z.boolean().default(false),
+  /** Most AI tokens (input + output) this run may spend; 0 means no AI even when enabled. */
+  maxAiTokens: z.number().int().min(0).max(200_000).default(20_000),
+  /** How strongly expansion leans on eccö's own captions and approvals. */
+  historyRelation: z.enum(['close', 'balanced', 'away']).default('balanced'),
 });
 export type ExplorationParams = z.infer<typeof ExplorationParamsSchema>;
 
@@ -47,6 +51,8 @@ interface SessionRow {
   max_queries: number;
   max_results: number;
   use_external_ai: boolean;
+  max_ai_tokens: number;
+  history_relation: 'close' | 'balanced' | 'away';
   status: string;
   created_by: string | null;
   new_count: number;
@@ -54,16 +60,18 @@ interface SessionRow {
 }
 
 export async function createSession(
-  p: ExplorationParams,
+  input: z.input<typeof ExplorationParamsSchema>,
   opts: { actorId: string | null; trigger?: 'manual' | 'scheduled' | 'related_reference' | 'repeat'; parentSessionId?: string; parentReferenceId?: string; scheduleId?: string },
 ): Promise<string> {
+  const p = ExplorationParamsSchema.parse(input);
   const r = await db().query<{ id: string }>(
     `INSERT INTO exploration_sessions(query, concepts, categories, mode, source_ids, creator, period_from, period_to, novelty, depth,
-       max_queries, max_results, use_external_ai, trigger, parent_session_id, parent_reference_id, schedule_id, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id`,
+       max_queries, max_results, use_external_ai, trigger, parent_session_id, parent_reference_id, schedule_id, created_by,
+       max_ai_tokens, history_relation)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING id`,
     [p.query, p.concepts, p.categories, p.mode, p.sourceIds, p.creator ?? null, p.periodFrom ?? null, p.periodTo ?? null, p.novelty,
       p.depth, p.maxQueries, p.maxResults, p.useExternalAi, opts.trigger ?? 'manual', opts.parentSessionId ?? null,
-      opts.parentReferenceId ?? null, opts.scheduleId ?? null, opts.actorId],
+      opts.parentReferenceId ?? null, opts.scheduleId ?? null, opts.actorId, p.maxAiTokens, p.historyRelation],
   );
   return r.rows[0]!.id;
 }
@@ -131,10 +139,14 @@ export async function runExploration(sessionId: string): Promise<void> {
   const queryEmbedding = textEmbedder.embed([s.query, ...s.concepts, ...s.categories].join(' '));
   const [config, profile] = await Promise.all([getActiveRankingConfig(), getEditorialProfile()]);
   const wikidata = new WikidataClient(httpClient());
-  const ai = s.use_external_ai ? await getTextProvider() : null;
+  const ai = s.use_external_ai && s.max_ai_tokens > 0 ? await getTextProvider() : null;
   const aiSuggest = ai?.provider
     ? async (q: string, n: number) => {
+        // The run's own AI budget, checked before every call (one call can end slightly above it).
+        const spent = await sessionAiTokens(sessionId);
+        if (spent >= s.max_ai_tokens) throw new Error(`this run's AI limit is reached (${spent} of ${s.max_ai_tokens} tokens)`);
         const text = await ai.provider!.generate({
+          explorationSessionId: sessionId,
           purpose: 'query_expansion',
           system: 'You suggest search terms for finding existing cultural and visual references in public archives. Reply with search terms only, one per line, no numbering or commentary.',
           prompt: `Suggest ${n} distinct search terms adjacent to: "${q}". Prefer named movements, techniques, publications, or design vocabularies over generic words.`,
@@ -143,7 +155,8 @@ export async function runExploration(sessionId: string): Promise<void> {
         return text.split('\n').map((l) => l.replace(/^[-*\d.\s]+/, '').trim()).filter((l) => l && l.length < 100).slice(0, n);
       }
     : undefined;
-  if (s.use_external_ai && !ai?.provider) errors.push(`AI expansion skipped: ${ai && 'reason' in ai ? ai.reason : 'unavailable'}`);
+  if (s.use_external_ai && s.max_ai_tokens === 0) errors.push('AI expansion skipped: this run allows 0 AI tokens');
+  else if (s.use_external_ai && !ai?.provider) errors.push(`AI expansion skipped: ${ai && 'reason' in ai ? ai.reason : 'unavailable'}`);
 
   // Level 0: the user's query and each explicit concept/category.
   const existing = (await db().query<{ id: string; query: string; depth: number; status: string; origin: string; rationale: string; parent_query_id: string | null }>(
@@ -243,7 +256,7 @@ export async function runExploration(sessionId: string): Promise<void> {
       for (const parent of parents) {
         const { expansions, errors: expErrors } = await expandQuery({
           query: parent.query, mode: s.mode, limit: Math.max(1, Math.ceil(budget / parents.length)), depth: depth + 1,
-          creatorsSeen, wikidata, aiSuggest, exclude: seenQueries,
+          creatorsSeen, wikidata, aiSuggest, exclude: seenQueries, historyRelation: s.history_relation,
         });
         errors.push(...expErrors);
         for (const e of expansions) {

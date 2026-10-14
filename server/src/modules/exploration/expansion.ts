@@ -55,10 +55,22 @@ export interface ExpansionInput {
   wikidata?: WikidataClient;
   aiSuggest?: (query: string, n: number) => Promise<string[]>;
   exclude: Set<string>;
+  /** close: eccö's captions and approvals lead; balanced: one strategy among others; away: not used. */
+  historyRelation?: 'close' | 'balanced' | 'away';
+}
+
+/** Strategies that start from what eccö has already published or approved. */
+const HISTORY_ORIGINS: ExpansionOrigin[] = ['history', 'approved_tags'];
+
+export function strategiesFor(mode: ExplorationMode, historyRelation: 'close' | 'balanced' | 'away' = 'balanced'): ExpansionOrigin[] {
+  const base = MODE_STRATEGIES[mode];
+  if (historyRelation === 'away') return base.filter((o) => !HISTORY_ORIGINS.includes(o));
+  if (historyRelation === 'close') return [...HISTORY_ORIGINS, ...base.filter((o) => !HISTORY_ORIGINS.includes(o))];
+  return base;
 }
 
 export async function expandQuery(input: ExpansionInput): Promise<{ expansions: Expansion[]; errors: string[] }> {
-  const strategies = MODE_STRATEGIES[input.mode];
+  const strategies = strategiesFor(input.mode, input.historyRelation);
   const out: Expansion[] = [];
   const errors: string[] = [];
   const push = (e: Expansion) => {
@@ -122,14 +134,19 @@ export async function expandQuery(input: ExpansionInput): Promise<{ expansions: 
       errors.push(`AI expansion failed: ${(e as Error).message}`);
     }
   }
-  // Interleave origins so one strategy cannot crowd out the others within the budget.
+  // Interleave origins so one strategy cannot crowd out the others within the budget. When the
+  // editor asks to stay close to eccö's history, those origins go first and take two per round.
   const byOrigin = new Map<ExpansionOrigin, Expansion[]>();
-  out.forEach((e) => byOrigin.set(e.origin, [...(byOrigin.get(e.origin) ?? []), e]));
+  for (const o of strategies) byOrigin.set(o, []);
+  out.forEach((e) => byOrigin.get(e.origin)?.push(e));
   const interleaved: Expansion[] = [];
   while (interleaved.length < input.limit && [...byOrigin.values()].some((l) => l.length)) {
-    for (const list of byOrigin.values()) {
-      const next = list.shift();
-      if (next && interleaved.length < input.limit) interleaved.push(next);
+    for (const [origin, list] of byOrigin) {
+      const take = input.historyRelation === 'close' && HISTORY_ORIGINS.includes(origin) ? 2 : 1;
+      for (let i = 0; i < take; i++) {
+        const next = list.shift();
+        if (next && interleaved.length < input.limit) interleaved.push(next);
+      }
     }
   }
   return { expansions: interleaved, errors };

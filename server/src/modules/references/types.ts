@@ -75,6 +75,7 @@ export interface ReferenceRow {
   discovered_at: string;
   preview_url: string | null;
   thumbnail_url: string | null;
+  cached_preview_path: string | null;
   media_type: MediaType;
   width: number | null;
   height: number | null;

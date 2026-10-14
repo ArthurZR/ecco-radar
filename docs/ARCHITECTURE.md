@@ -53,6 +53,8 @@ web (React SPA) ──/api──▶ server (Fastify) ──▶ PostgreSQL
   `research_sources`, `audit_events`.
 - `caption_drafts` (versioned, never overwritten) and `final_captions` (the editor's text, separate).
 - `exploration_sessions`, `exploration_queries` (tree with origin and rationale), `discovery_schedules`.
+  Each session stores its own limits (`max_queries`, `max_results`, `max_ai_tokens`) and its
+  `history_relation` (close / balanced / away); `ai_usage.exploration_session_id` ties AI spend to a run.
 - `ranking_configs` (versioned, one active), `preference_resets`, `preference_overrides`.
 - `import_batches`, `import_raw_rows`, `historical_posts`, `historical_post_metrics` (per batch, so
   re-imports become newer observations), `historical_post_features`, `account_daily_metrics`

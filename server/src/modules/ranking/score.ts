@@ -137,6 +137,7 @@ export function scoreReference(r: ScorableReference, profile: EditorialProfile, 
   const keys = featureKeys(r);
   const matched = keys.map((k) => profile.featureWeights.get(k)).filter((x): x is number => x !== undefined);
   const featureMean = matched.length ? matched.reduce((a, b) => a + b, 0) / matched.length : 0;
+  let affinitySim = 0;
   if (profile.approvedCount === 0 && profile.historyCount === 0 && matched.length === 0) {
     add('editorial_affinity', null, 'No editorial decisions or imported eccö history yet.');
   } else {
@@ -145,6 +146,7 @@ export function scoreReference(r: ScorableReference, profile: EditorialProfile, 
     const hasA = !!profile.approvedCentroid;
     const hasH = !!profile.historyCentroid;
     const sim = hasA && hasH ? 0.6 * simA + 0.4 * simH : hasA ? simA : simH;
+    affinitySim = sim;
     const value = 0.7 * sim + 0.3 * (0.5 + 0.5 * featureMean);
     add('editorial_affinity', value, `Text similarity to approved items/eccö history ${sim.toFixed(2)}; learned feature signal ${featureMean.toFixed(2)} (${matched.length} matched).`);
     if (sim >= 0.6) reasons.push(hasA ? 'Close to references you approved' : 'Close to subjects eccö has published');
@@ -219,9 +221,8 @@ export function scoreReference(r: ScorableReference, profile: EditorialProfile, 
   if (!r.preview_url && !(r.description ?? '').trim()) penalties.push({ key: 'inaccessible', label: 'No preview or description available', amount: 0.15 });
   // Experimental mode still needs a defensible connection
   if (ctx.mode === 'experimental') {
-    const aff = components.find((c) => c.key === 'editorial_affinity')?.value ?? 0;
     const q = components.find((c) => c.key === 'semantic_relevance')?.value;
-    if (aff < 0.15 && cultural < 0.2 && (q === undefined || q === null || q < 0.2)) {
+    if (affinitySim < 0.15 && featureMean <= 0 && cultural < 0.2 && (q === undefined || q === null || q < 0.2)) {
       penalties.push({ key: 'no_connection', label: 'No defensible connection to eccö or the query', amount: 0.2 });
     }
   }

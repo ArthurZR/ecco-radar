@@ -32,7 +32,7 @@ const meta = (m: CommonsPage['imageinfo'] extends (infer I)[] | undefined ? I : 
 function artistLink(html: unknown): string | undefined {
   if (typeof html !== 'string') return undefined;
   const m = html.match(/href="([^"]+)"/);
-  return m ? safeUrl(m[1]!.startsWith('/') ? `https://commons.wikimedia.org${m[1]}` : m[1]) : undefined;
+  return m ? safeUrl(m[1]!.startsWith('/') && !m[1]!.startsWith('//') ? `https://commons.wikimedia.org${m[1]}` : m[1]) : undefined;
 }
 
 export const wikimediaCommons: SourceAdapter = {

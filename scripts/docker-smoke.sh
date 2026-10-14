@@ -41,6 +41,16 @@ expect 200 'the signed-in user can read the archive' -b "$work/jar" "$base/api/r
 compose exec -T app node -e "import('sharp').then((s) => s.default({ create: { width: 2, height: 2, channels: 3, background: '#3cc04c' } }).png().toBuffer())" >/dev/null
 echo 'ok: the image analysis library loads in the production image'
 
+# Text detection must work offline from the packaged model. The image is a 646-byte PNG of the
+# words "RADAR 2001", embedded here because the slim image has no fonts to render text with.
+compose exec -T app node --input-type=module -e "
+  const { detectText, stopOcr } = await import('./dist/lib/ocr.js');
+  const r = await detectText(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAaQAAABaAQMAAADNbbCrAAAABlBMVEUODg7////APDf/AAAACXBIWXMAAAsTAAALEwEAmpwYAAACJklEQVRYw+3W3Y3cIBAH8EGcwlsogRZSQCRSUgqIznR2lOISkPIQHpAn/2Egd1GwN4nyFHlXyOzYP9t8DUv8F59Ct7rVrW51q/9HvSzVTg4Vy43kFilogIvp0X7cw0JRPwcVhsKFnGlD0WNaqm0oPIOCBjihlij2QksVee8KL0ReA0yoydNRjrWS+4syfKgKqJCfpa6VH4qm8qhkh4iX9y4rFbOXdjdbaTvQth7AL1dtcc2UE1Uc509bs0xbe3IaaK47fJstH1aqTpWiKgSqO2z1IqE+r1RznLKoHNs7O5Q/bBElx3KqItQealdtql7M11O1iyqhvjcaYIYIhxH17UzRr6qpCmy4nPSG2YMoX7zRAJTbH6oyFU1VofhCFXeoqr4E0vGC8pcqpNHL/cIElbycm4qWSuboG7X1eSh3E7Wfq6BzQFTsSq7K8cGz4lDF55g3XV8MftUuLN3mXlXUtXwQXyvDFetYFZ6jeaNh4K7GC4txqpC6kmRV5efVKP+sggRwyvGch2uVtoKc0ee8qoR27V6U/Q2VI/1QOfBcX2uV41vlJYCOj6p6365UnwUkeQMtKkOh92feuFaVnk2fH7vkQ+nG0nPOyZzH4ELh7dByLBBRkolnPrxQ6QvaNlTxXc3ce7Yqh5Ixa1bzoaqe588UulqUG6qqYhp7yjrbWKj8sa+YrppVpXvY9kChUXyYV9X3Synhj/blOMr9L+VWt7rVrf6h+g7gkx3I8dTJ6AAAAABJRU5ErkJggg==', 'base64'));
+  await stopOcr();
+  if (!/RADAR/.test(r.text)) { console.error('OCR read: ' + JSON.stringify(r.text)); process.exit(1); }
+" >/dev/null
+echo 'ok: text detection runs offline in the production image'
+
 compose restart db >/dev/null
 sleep 5
 expect 200 'health check passes again after a database restart' "$base/api/health"

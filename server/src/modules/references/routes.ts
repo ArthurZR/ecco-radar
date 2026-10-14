@@ -12,6 +12,7 @@ import { STATUS_META, STATUSES, REJECTION_REASONS } from './status.js';
 import { parseRefNumber } from './types.js';
 import { analyzeReferenceImage } from './visual.js';
 import { clusterReferences } from './clusters.js';
+import { detectReferenceText, reviewDetectedText } from './detected-text.js';
 import { referencePerformance } from '../insights/reference-performance.js';
 
 const RefParam = z.object({ ref: z.string() });
@@ -101,6 +102,22 @@ export async function referenceRoutes(app: FastifyInstance): Promise<void> {
     );
     const row = r.rows[0];
     return referencePerformance(id, row?.text_embedding ?? null, { embedding: row?.visual_embedding ?? null, hash: row?.visual_hash ?? null });
+  });
+
+  app.post('/api/references/:ref/detected-text/run', async (req) => {
+    const id = await idForRef(RefParam.parse(req.params).ref);
+    return detectReferenceText(id);
+  });
+
+  app.post('/api/references/:ref/detected-text/review', async (req) => {
+    const id = await idForRef(RefParam.parse(req.params).ref);
+    const body = z.discriminatedUnion('action', [
+      z.object({ action: z.literal('confirm') }),
+      z.object({ action: z.literal('reject') }),
+      z.object({ action: z.literal('reset') }),
+      z.object({ action: z.literal('correct'), text: z.string().max(2000) }),
+    ]).parse(req.body);
+    return reviewDetectedText(id, body, req.user!.id);
   });
 
   app.get('/api/clusters', async (req) => {

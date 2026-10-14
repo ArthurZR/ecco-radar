@@ -6,6 +6,7 @@ import { getTextProvider, AiUnavailableError } from '../../ai/provider.js';
 import { buildPublicationPack } from './pack.js';
 import { formatRefNumber, parseRefNumber } from '../references/types.js';
 import { buildFactSheet, flagUnsupported, groundedTemplate, type CaptionReference, type FactSheet } from './grounding.js';
+import { getDetectedText } from '../references/detected-text.js';
 
 const LENGTHS = { short: 'one or two sentences (under 220 characters)', medium: 'three to four sentences', long: 'a short paragraph of five to seven sentences' } as const;
 
@@ -43,12 +44,13 @@ async function loadContext(ref: string) {
   );
   const row = r.rows[0];
   if (!row) throw notFound('Reference');
-  const [entities, notes, sources] = await Promise.all([
+  const [entities, notes, sources, detected] = await Promise.all([
     db().query(`SELECT e.label, e.kind, re.predicate, re.evidence, re.provenance FROM reference_entities re JOIN cultural_entities e ON e.id = re.entity_id WHERE re.reference_id = $1`, [row.id]),
     db().query<{ body: string }>(`SELECT body FROM research_notes WHERE reference_id = $1 ORDER BY created_at`, [row.id]),
     db().query<{ id: string }>(`SELECT id FROM research_sources WHERE reference_id = $1`, [row.id]),
+    getDetectedText(row.id),
   ]);
-  const sheet = buildFactSheet(row, entities.rows, notes.rows.map((x) => x.body));
+  const sheet = buildFactSheet(row, entities.rows, notes.rows.map((x) => x.body), detected?.confirmedText ?? null);
   return { row, sheet, sourceIds: sources.rows.map((s) => s.id) };
 }
 

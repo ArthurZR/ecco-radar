@@ -17,7 +17,8 @@ interface Prefs {
   resets: { id: string; reset_at: string; note: string | null; undone_at: string | null }[];
 }
 interface Settings {
-  settings: Record<'external_ai_enabled' | 'background_paused' | 'visual_analysis_enabled', { value: boolean; description: string }>;
+  settings: Record<'external_ai_enabled' | 'background_paused' | 'visual_analysis_enabled' | 'text_detection_enabled', { value: boolean; description: string }>;
+  textDetection: { found: number; none: number; failed: number; pending: number; confirmed: number; corrected: number; rejected: number; model: string };
   visual: { analysed: number; failed: number; pending: number; no_preview: number; model: string; hashModel: string };
   ai: { configured: boolean; provider: string | null; model: string | null; usageLast30Days: { provider: string; model: string; purpose: string; calls: number; succeeded: number; input_tokens: number; output_tokens: number }[]; budget: { limit: number | null; usedLast24h: number } };
   publishing: string;
@@ -130,6 +131,20 @@ function General() {
             <p className="small muted">{s.settings.visual_analysis_enabled.description} It measures colour, tone and layout structure only; it does not recognise subjects or style.</p>
             <p className="small">{s.visual.analysed} analysed · {s.visual.pending} waiting · {s.visual.failed} failed · {s.visual.no_preview} without a preview</p>
             {s.visual.failed ? <div><button className="sm" disabled={retry.isPending} onClick={() => retry.mutate()}>Retry failed images</button></div> : null}
+          </div>
+        </section>
+        <section className="panel">
+          <header><h2>Text in images</h2><span className="badge">{s.textDetection.model}</span></header>
+          <div className="body stack">
+            <label className="check">
+              <input type="checkbox" checked={s.settings.text_detection_enabled.value} onChange={(e) => set.mutate({ key: 'text_detection_enabled', value: e.target.checked })} />
+              Read text in images
+            </label>
+            <p className="small muted">{s.settings.text_detection_enabled.description}</p>
+            <p className="small">
+              {s.textDetection.found} with text · {s.textDetection.none} without legible text · {s.textDetection.pending} waiting · {s.textDetection.failed} failed
+              <br />Reviewed: {s.textDetection.confirmed} confirmed · {s.textDetection.corrected} corrected · {s.textDetection.rejected} rejected
+            </p>
           </div>
         </section>
         <section className="panel">

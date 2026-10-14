@@ -66,7 +66,7 @@ function Items() {
               {items.map((it) => (
                 <tr key={it.id}>
                   <td><Link className="refid" to={`/ref/${it.refNumber}`}>{it.refLabel}</Link></td>
-                  <td><Link to={`/ref/${it.refNumber}`} tabIndex={-1} style={{ display: 'block', width: 44, height: 44, overflow: 'hidden', background: 'var(--panel-2)' }}><Thumb src={it.thumbnailUrl ?? it.previewUrl} alt="" className="archthumb" /></Link></td>
+                  <td><Link to={`/ref/${it.refNumber}`} tabIndex={-1} style={{ display: 'block', width: 44, height: 44, overflow: 'hidden', background: 'var(--panel-2)' }}><Thumb src={it.thumbnailUrl ?? it.previewUrl} alt={`Open ${it.refLabel}`} className="archthumb" /></Link></td>
                   <td>{it.title ?? <span className="muted">Untitled</span>}{it.duplicateCandidates ? <span className="badge warn" style={{ marginLeft: 4 }}>dup?</span> : null}</td>
                   <td>{it.creatorName ?? <span className="muted">Unknown</span>}</td>
                   <td className="small">{it.publishedRaw ?? '—'}</td>

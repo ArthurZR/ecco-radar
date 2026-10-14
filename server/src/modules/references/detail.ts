@@ -5,6 +5,7 @@ import { getActiveRankingConfig } from '../ranking/config.js';
 import { getEditorialProfile } from '../ranking/profile.js';
 import { scoreReference, visualScale } from '../ranking/score.js';
 import { loadRow, toScorable } from './feed.js';
+import { getDetectedText } from './detected-text.js';
 import { STATUS_META } from './status.js';
 import { formatRefNumber } from './types.js';
 
@@ -102,7 +103,7 @@ export async function getReferenceDetail(refNumber: number) {
   const m = await minis(allIds);
   const attach = (list: { id: string; score: number }[]) => list.map((x) => ({ ...m.get(x.id)!, score: x.score })).filter((x) => x.refLabel);
 
-  const [config, profile] = await Promise.all([getActiveRankingConfig(), getEditorialProfile()]);
+  const [config, profile, detectedText] = await Promise.all([getActiveRankingConfig(), getEditorialProfile(), getDetectedText(row.id)]);
   const score = scoreReference(toScorable(row), profile, config.weights, { mode: 'adjacent', novelty: 0.5, historicalExposurePenalty: config.diversity.historical_exposure_penalty });
 
   return {
@@ -144,6 +145,7 @@ export async function getReferenceDetail(refNumber: number) {
           ? { state: 'failed', at: row.visual_analyzed_at, error: row.visual_error }
           : { state: row.thumbnail_url || row.preview_url ? 'pending' : 'no_preview' },
     },
+    detectedText,
     tags: tags.rows,
     entities: entities.rows,
     duplicates: relations.rows

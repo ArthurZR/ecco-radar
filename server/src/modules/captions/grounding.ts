@@ -33,6 +33,8 @@ export function buildFactSheet(
   r: CaptionReference,
   entities: { label: string; kind: string; predicate: string; evidence: string; provenance: string }[],
   notes: string[],
+  /** Text in the image, only once the editor confirmed or corrected the OCR reading. */
+  visibleText: string | null = null,
 ): FactSheet {
   const facts: Fact[] = [];
   const unknown: string[] = [];
@@ -51,6 +53,7 @@ export function buildFactSheet(
     if (e.evidence !== 'documented' && e.evidence !== 'editor_confirmed') continue;
     facts.push({ key: `entity:${e.label}`, label: `${e.predicate.replace(/_/g, ' ')} (${e.provenance})`, value: e.label, basis: e.evidence === 'editor_confirmed' ? 'editor_confirmed' : 'documented_relation' });
   }
+  if (visibleText) facts.push({ key: 'visible_text', label: 'Text visible in the image (transcription checked by editor)', value: visibleText.slice(0, 1000), basis: 'editor_confirmed' });
   notes.forEach((n, i) => facts.push({ key: `note:${i}`, label: 'Editor research note', value: n.slice(0, 2000), basis: 'editor_note' }));
   return { facts, unknown };
 }

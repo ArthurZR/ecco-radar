@@ -76,6 +76,33 @@ test('detail: the original source link, a research note and honest performance c
   await expect(page.getByText(/No post-level analytics imported yet/)).toBeVisible();
 });
 
+test('text in the image: read locally as a suggestion, corrected by the editor, then a caption fact', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/ref/2');
+  const panel = page.locator('.detected-text');
+  // The worker is off in these tests; read it on demand. The image is served by RADAR itself.
+  await expect(panel.getByText(/Not read yet/)).toBeVisible();
+  await panel.getByRole('button', { name: 'Read now' }).click();
+  await expect(panel.locator('.ocr-text')).toContainText('DESKTOP THEME');
+  await expect(panel.getByText('suggestion, not checked')).toBeVisible();
+
+  await panel.getByRole('button', { name: 'Correct…' }).click();
+  await panel.getByLabel('Text as it appears in the image').fill('Desktop Theme 2001');
+  await panel.getByRole('button', { name: 'Save transcription' }).click();
+  await expect(panel.locator('.ocr-text')).toHaveText('Desktop Theme 2001');
+  await expect(panel.getByText('corrected by you')).toBeVisible();
+  await audit(page, 'Reference with detected text');
+
+  await page.goto('/studio/2');
+  await expect(page.getByText(/Text visible in the image/)).toBeVisible();
+  await expect(page.getByText('Desktop Theme 2001')).toBeVisible();
+
+  // Undoing the review returns it to an unchecked suggestion, which captions do not use.
+  await page.goto('/ref/2');
+  await panel.getByRole('button', { name: 'Undo review' }).click();
+  await expect(panel.getByText('suggestion, not checked')).toBeVisible();
+});
+
 test('archive groups: references are grouped by wording, and colour grouping waits for analysed images', async ({ page }) => {
   await signIn(page);
   await page.goto('/archive');

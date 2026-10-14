@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { db } from '../../db/pool.js';
 import { env } from '../../config/env.js';
 import { resetVisualAnalysis, visualAnalysisStatus } from '../references/visual.js';
+import { aiBudget } from '../../ai/provider.js';
 
 const SETTINGS = {
   external_ai_enabled: { default: false, description: 'Allow sending reference metadata (never analytics files) to the configured AI provider for caption drafts and query expansion.' },
@@ -24,10 +25,21 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     )).rows;
     return {
       settings: Object.fromEntries(Object.entries(SETTINGS).map(([k, s]) => [k, { value: rows.find((r) => r.key === k)?.value ?? s.default, description: s.description }])),
-      ai: { configured: !!env().ANTHROPIC_API_KEY, provider: env().ANTHROPIC_API_KEY ? 'anthropic' : null, model: env().ANTHROPIC_API_KEY ? env().ANTHROPIC_MODEL : null, usageLast30Days: usage },
+      ai: { configured: !!env().ANTHROPIC_API_KEY, provider: env().ANTHROPIC_API_KEY ? 'anthropic' : null, model: env().ANTHROPIC_API_KEY ? env().ANTHROPIC_MODEL : null, usageLast30Days: usage, budget: await aiBudget() },
       visual: await visualAnalysisStatus(),
       publishing: 'eccö RADAR has no publishing integrations. Approval and "manually published" are records only.',
     };
+  });
+
+  // Registered before '/api/settings/:key', which only takes booleans; the static path wins in Fastify.
+  app.put('/api/settings/ai_daily_token_limit', async (req) => {
+    const { value } = z.object({ value: z.number().int().min(1000).max(100_000_000).nullable() }).parse(req.body);
+    await db().query(
+      `INSERT INTO app_settings(key, value) VALUES ('ai_daily_token_limit', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+      [JSON.stringify(value)],
+    );
+    await db().query(`INSERT INTO audit_events(actor_id, action, entity_type, entity_id, data) VALUES ($1,'setting_changed','setting','ai_daily_token_limit',$2)`, [req.user!.id, JSON.stringify({ value })]);
+    return { ok: true };
   });
 
   app.put('/api/settings/:key', async (req) => {

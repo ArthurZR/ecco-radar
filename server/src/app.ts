@@ -100,9 +100,10 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(captionRoutes);
   await app.register(settingsRoutes);
 
-  // Production: serve the built web app from the same origin.
+  // Serve the built web app from the same origin in production, or whenever WEB_DIST_DIR is set
+  // explicitly (the end-to-end tests do this).
   const webDist = config.WEB_DIST_DIR ?? path.resolve(process.cwd(), '../web/dist');
-  if (config.NODE_ENV === 'production' && existsSync(webDist)) {
+  if ((config.NODE_ENV === 'production' || config.WEB_DIST_DIR) && existsSync(webDist)) {
     await app.register(fastifyStatic, { root: webDist, wildcard: false });
     app.setNotFoundHandler((req, reply) => {
       if (req.url.startsWith('/api/')) return reply.status(404).send({ error: 'not_found', message: 'Not found' });

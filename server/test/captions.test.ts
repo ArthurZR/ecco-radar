@@ -74,3 +74,29 @@ describe('Caption Studio API', () => {
     expect(exp.caption).not.toMatch(/https?:/); // sources stay out of the caption
   });
 });
+
+describe('AI usage limit', () => {
+  it('refuses AI once the last 24 hours reach the limit, and lifts when the editor raises it', async () => {
+    const r = await ingestReference({ sourceId: 'manual', originalUrl: 'https://example.com/b', title: 'Budget test', mediaType: 'image' }, { method: 'manual_import', path: [] });
+    const { app, cookie } = await appWithSession();
+    setTextProvider({ name: 'fake', model: 'fake-1', generate: async () => 'A draft.' });
+    await db().query(`INSERT INTO ai_usage(provider, model, purpose, input_tokens, output_tokens, succeeded) VALUES ('fake','fake-1','caption_draft', 150000, 60000, true)`);
+    // An older call outside the 24-hour window does not count.
+    await db().query(`INSERT INTO ai_usage(provider, model, purpose, input_tokens, output_tokens, succeeded, created_at) VALUES ('fake','fake-1','caption_draft', 900000, 0, true, now() - interval '2 days')`);
+
+    const s = (await app.inject({ url: '/api/settings', headers: { cookie } })).json();
+    expect(s.ai.budget).toEqual({ limit: 200000, usedLast24h: 210000 });
+    const refused = await app.inject({ method: 'POST', url: `/api/captions/${r.refNumber}/generate`, headers: { cookie }, payload: { method: 'ai' } });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.body).toMatch(/daily AI limit/);
+
+    const bad = await app.inject({ method: 'PUT', url: '/api/settings/ai_daily_token_limit', headers: { cookie }, payload: { value: 5 } });
+    expect(bad.statusCode).toBe(400);
+    await app.inject({ method: 'PUT', url: '/api/settings/ai_daily_token_limit', headers: { cookie }, payload: { value: 500000 } });
+    const ok = await app.inject({ method: 'POST', url: `/api/captions/${r.refNumber}/generate`, headers: { cookie }, payload: { method: 'ai' } });
+    expect(ok.statusCode).toBe(200);
+
+    await app.inject({ method: 'PUT', url: '/api/settings/ai_daily_token_limit', headers: { cookie }, payload: { value: null } });
+    expect((await app.inject({ url: '/api/settings', headers: { cookie } })).json().ai.budget.limit).toBeNull();
+  });
+});

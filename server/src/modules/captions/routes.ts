@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { db, withTransaction } from '../../db/pool.js';
 import { AppError, badRequest, notFound } from '../../lib/errors.js';
 import { getTextProvider, AiUnavailableError } from '../../ai/provider.js';
-import { parseRefNumber } from '../references/types.js';
+import { buildPublicationPack } from './pack.js';
+import { formatRefNumber, parseRefNumber } from '../references/types.js';
 import { buildFactSheet, flagUnsupported, groundedTemplate, type CaptionReference, type FactSheet } from './grounding.js';
 
 const LENGTHS = { short: 'one or two sentences (under 220 characters)', medium: 'three to four sentences', long: 'a short paragraph of five to seven sentences' } as const;
@@ -202,14 +203,27 @@ export async function captionRoutes(app: FastifyInstance): Promise<void> {
   // Export of prepared material for manual publication. Produces text only; nothing is sent anywhere.
   app.get('/api/captions/:ref/export', async (req) => {
     const { ref } = z.object({ ref: z.string() }).parse(req.params);
-    const { row } = await loadContext(ref);
-    const final = (await db().query<{ body: string }>('SELECT body FROM final_captions WHERE reference_id = $1', [row.id])).rows[0];
-    const sources = (await db().query<{ url: string; title: string | null }>('SELECT url, title FROM research_sources WHERE reference_id = $1', [row.id])).rows;
+    const { row, sheet } = await loadContext(ref);
+    const [final, sources, extra] = await Promise.all([
+      db().query<{ body: string }>('SELECT body FROM final_captions WHERE reference_id = $1', [row.id]),
+      db().query<{ url: string; title: string | null }>('SELECT url, title FROM research_sources WHERE reference_id = $1 ORDER BY accessed_at', [row.id]),
+      db().query<{ ref_number: number; status: string; creator_url: string | null; preview_url: string | null }>(
+        'SELECT ref_number, status, creator_url, preview_url FROM reference_items WHERE id = $1', [row.id],
+      ),
+    ]);
+    const x = extra.rows[0]!;
+    const caption = final.rows[0]?.body ?? null;
+    const pack = buildPublicationPack(sheet, {
+      refLabel: formatRefNumber(x.ref_number), status: x.status, attributionStatus: row.attribution_status,
+      originalUrl: row.original_url, creatorUrl: x.creator_url, previewUrl: x.preview_url, sourceName: row.source_name,
+      finalCaption: caption, researchSources: sources.rows,
+    });
     return {
-      caption: final?.body ?? null,
+      caption,
       media: { originalUrl: row.original_url, creator: row.creator_name, license: row.license },
-      researchSources: sources,
-      notice: 'Prepared for manual publication. eccö RADAR does not publish or schedule anything.',
+      researchSources: sources.rows,
+      pack,
+      notice: pack.notice,
     };
   });
 }

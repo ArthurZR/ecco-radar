@@ -158,20 +158,8 @@ function Studio({ refId }: { refId: string }) {
   };
   const exportFile = async () => {
     try {
-      const e = await api.get<{ caption: string | null; media: { originalUrl: string; creator: string | null; license: string | null }; researchSources: { url: string; title: string | null }[]; notice: string }>(`/api/captions/${refId}/export`);
-      const text = [
-        `eccö RADAR ${label}`,
-        '',
-        e.caption ?? '(no final caption)',
-        '',
-        `Original: ${e.media.originalUrl}`,
-        `Creator (as recorded): ${e.media.creator ?? 'unknown'}`,
-        `Rights: ${e.media.license ?? 'not stated by source'}`,
-        e.researchSources.length ? `Research sources:\n${e.researchSources.map((s) => `- ${s.title ?? s.url} ${s.url}`).join('\n')}` : '',
-        '',
-        e.notice,
-      ].join('\n');
-      const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+      const { pack } = await api.get<{ pack: Pack }>(`/api/captions/${refId}/export`);
+      const url = URL.createObjectURL(new Blob([`${pack.text}\n\n${pack.notice}\n`], { type: 'text/plain;charset=utf-8' }));
       const a = document.createElement('a');
       a.href = url;
       a.download = `ecco-${label.slice(1)}-caption.txt`;
@@ -324,11 +312,66 @@ function Studio({ refId }: { refId: string }) {
             ) : null}
           </div>
         </section>
+        {savedFinal ? <PublicationPackPanel refId={refId} version={`${savedFinal}|${r?.status ?? ''}`} /> : null}
       </div>
       {publishing && r ? (
         <PublishedDialog refLabel={r.refLabel} onCancel={() => setPublishing(false)} onConfirm={(c) => { status.mutate({ refLabel: r.refLabel, change: c, previous: r.status }); setPublishing(false); }} />
       ) : null}
     </div>
+  );
+}
+
+interface Pack {
+  refLabel: string;
+  caption: string | null;
+  creditLine: string;
+  links: { label: string; url: string }[];
+  checks: { key: string; text: string }[];
+  text: string;
+  notice: string;
+}
+
+/** Everything needed to post by hand, built only from stored facts. Nothing here is sent anywhere. */
+function PublicationPackPanel({ refId, version }: { refId: string; version: string }) {
+  const toast = useToast();
+  const q = useQuery({ queryKey: ['caption-pack', refId, version], queryFn: () => api.get<{ pack: Pack }>(`/api/captions/${refId}/export`) });
+  const copy = async (text: string, what: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast({ text: `${what} copied` });
+    } catch {
+      toast({ text: 'Copy failed: select the text and copy manually', error: true });
+    }
+  };
+  const p = q.data?.pack;
+  return (
+    <section className="panel">
+      <header><h2>Publication pack</h2><span className="small muted">for posting by hand</span></header>
+      <div className="body stack">
+        <ErrorBox error={q.error} />
+        {p ? (
+          <>
+            <label className="field"><span>Credit line (from stated facts only)</span>
+              <div className="caption-text credit-line">{p.creditLine}</div>
+            </label>
+            <div className="row">
+              <button onClick={() => copy(`${p.caption ?? ''}\n\n${p.creditLine}`, 'Caption and credit')}>Copy caption + credit</button>
+              <button onClick={() => copy(p.creditLine, 'Credit line')}>Copy credit only</button>
+            </div>
+            <ul className="plain small">
+              {p.links.map((l) => <li key={l.url}>{l.label}: <a href={l.url} target="_blank" rel="noopener noreferrer">{l.url}</a></li>)}
+            </ul>
+            {p.checks.length ? (
+              <div className="notice warn small" role="status">
+                <b>Before posting</b>
+                <ul className="plain">{p.checks.map((c) => <li key={c.key}>{c.text}</li>)}</ul>
+              </div>
+            ) : <p className="small muted" style={{ margin: 0 }}>Nothing outstanding before posting.</p>}
+            <p className="small muted" style={{ margin: 0 }}>{p.notice}</p>
+          </>
+        ) : <Loading />}
+      </div>
+    </section>
   );
 }
 

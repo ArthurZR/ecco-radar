@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { test, expect, signIn, EDITOR } from './fixtures';
+import { test, expect, signIn, audit, EDITOR } from './fixtures';
 
 /** The masonry lays cards out by column, so rank position comes from data-idx, not DOM order. */
 const card = (page: Page, idx: number) => page.locator(`article.card[data-idx="${idx}"]`);
@@ -108,6 +108,12 @@ test('caption studio to manual publication never contacts a platform', async ({ 
   await page.getByLabel('Final caption').fill('SYNTHETIC Aqua button study, Test Designer A, 2003. Final words.');
   await page.getByRole('button', { name: 'Save final caption' }).click();
   await expect(page.getByText(/^saved /)).toBeVisible();
+
+  // The publication pack credits only what the source states and lists what is still open.
+  const pack = page.locator('section.panel', { has: page.getByRole('heading', { name: 'Publication pack' }) });
+  await expect(pack.locator('.credit-line')).toHaveText('“SYNTHETIC Aqua button study”, Test Designer A, 2003. Via Manual URL import.');
+  await expect(pack.getByText('Not yet approved for manual publication.')).toBeVisible();
+  await audit(page, 'Caption Studio with publication pack');
 
   await page.getByRole('button', { name: 'Mark caption draft' }).click();
   await page.getByRole('button', { name: 'Mark reviewed' }).click();

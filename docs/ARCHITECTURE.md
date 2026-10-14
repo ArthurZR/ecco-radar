@@ -24,8 +24,8 @@ web (React SPA) ──/api──▶ server (Fastify) ──▶ PostgreSQL
 
 ## Hard rules and where they are enforced
 
-- **No publication.** There is no publishing code anywhere. The HTTP client exposes only `getText` and
-  `getJson`. The `jobs.kind` column has a CHECK constraint listing the only job types
+- **No publication.** There is no publishing code anywhere. The HTTP client exposes only `getText`,
+  `getBytes` and `getJson` (all GET). The `jobs.kind` column has a CHECK constraint listing the only job types
   (`run_exploration`, `embed_reference`, `schedule_tick`, `refresh_source_status`), so a publish job
   cannot be stored. `publication_reports.verification` can only be `user_reported`. A test walks the
   whole status pipeline while asserting no outbound request is made, and another scans `server/src`
@@ -113,10 +113,22 @@ editor asks. The whole step can be switched off in Settings.
 editor has enabled external AI in Settings. Captions are generated from the fact sheet only (source
 metadata, confirmed relations, editor notes); analytics are never sent. Every draft is checked by
 `flagUnsupported` for years, numbers, names and evaluative claims absent from the facts. Usage is
-logged in `ai_usage`.
+logged in `ai_usage`, and `getTextProvider` refuses new calls once the tokens recorded in the last 24
+hours reach the editor's limit (`ai_daily_token_limit`, default 200,000; null means no limit). The check
+runs before each call, so a single call can finish slightly above the limit.
 
 ## Web (`web/src`)
 
 React Router pages under `pages/`, TanStack Query for server state, plain CSS tokens in `styles.css`.
 Charts are inline SVG (`components/charts.tsx`) with a crosshair tooltip and a table view. The feed is
-URL-driven (filters live in the query string) and keyboard-operable (`?` lists shortcuts).
+URL-driven (filters live in the query string) and keyboard-operable (`?` lists shortcuts). It has a
+dense masonry view and a research view (one row per reference with every ranking reason, caveat,
+tag and the attribution basis); `v` switches, and the choice is remembered in the browser.
+
+## Tests
+
+- `server/test`: Vitest against a real PostgreSQL database with fake HTTP.
+- `web/src/__tests__`: Vitest for UI helpers and components.
+- `e2e/`: Playwright against the real API and built web app (`server/scripts/e2e-server.ts` seeds
+  SYNTHETIC data and replaces the HTTP client with one that refuses every request). A fixture fails
+  any test in which the browser contacts an origin other than RADAR.

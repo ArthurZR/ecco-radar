@@ -35,7 +35,14 @@ npm run typecheck
 npm run lint
 npm test            # server tests use TEST_DATABASE_URL (default postgres://radar:radar@localhost:5432/radar_test)
 npm run build
+npm run e2e         # browser tests; needs the build above and a Chromium (`npx playwright install chromium`)
 ```
+
+`npm run e2e` starts the API with the built web app on port 8790 against the test database, seeds five
+SYNTHETIC references and blocks all outbound HTTP. The browser tests sign in, triage the feed with the
+keyboard, write a note, take a caption through to "manually published", import and roll back a
+synthetic X file, and change the AI limit. Every test also fails if the browser contacts any origin
+other than RADAR itself.
 
 Server tests empty their database on every run, so they only accept a database whose name contains
 "test" and ignore `DATABASE_URL`. They use a real PostgreSQL database and fake HTTP responses shaped like each API; they never
@@ -52,6 +59,11 @@ All keys live in the server environment only. Nothing secret is sent to the brow
 | `FLICKR_API_KEY` | Flickr adapter | https://www.flickr.com/services/api/misc.api_keys.html |
 | `TUMBLR_API_KEY` | Tumblr adapter | OAuth consumer key from https://www.tumblr.com/oauth/apps |
 | `ANTHROPIC_API_KEY` | AI caption drafts, rewrites, experimental query suggestions | https://console.anthropic.com |
+
+AI use is capped by a daily token limit (200,000 tokens per rolling 24 hours by default), set in
+**Settings → AI provider**. It counts the tokens the provider reports for every call, from Caption
+Studio and from exploration alike; once reached, AI requests are refused with that reason until usage
+falls below the limit. This is the measurable part of AI cost; RADAR does not convert it to money.
 
 Without an AI key, Caption Studio still assembles restrained captions from source facts and you can
 write your own. Even with a key, external AI stays off until you enable it in Settings.

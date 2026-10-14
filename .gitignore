@@ -9,3 +9,7 @@ coverage/
 data/
 *.csv
 !server/test/fixtures/*.csv
+
+# Playwright
+test-results/
+playwright-report/

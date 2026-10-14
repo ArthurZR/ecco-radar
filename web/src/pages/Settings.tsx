@@ -19,7 +19,7 @@ interface Prefs {
 interface Settings {
   settings: Record<'external_ai_enabled' | 'background_paused' | 'visual_analysis_enabled', { value: boolean; description: string }>;
   visual: { analysed: number; failed: number; pending: number; no_preview: number; model: string; hashModel: string };
-  ai: { configured: boolean; provider: string | null; model: string | null; usageLast30Days: { provider: string; model: string; purpose: string; calls: number; succeeded: number; input_tokens: number; output_tokens: number }[] };
+  ai: { configured: boolean; provider: string | null; model: string | null; usageLast30Days: { provider: string; model: string; purpose: string; calls: number; succeeded: number; input_tokens: number; output_tokens: number }[]; budget: { limit: number | null; usedLast24h: number } };
   publishing: string;
 }
 
@@ -38,6 +38,38 @@ export function SettingsPage() {
         <Preferences />
       </div>
     </>
+  );
+}
+
+function AiLimit({ budget }: { budget: { limit: number | null; usedLast24h: number } }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [draft, setDraft] = useState(budget.limit === null ? '' : String(budget.limit));
+  useEffect(() => setDraft(budget.limit === null ? '' : String(budget.limit)), [budget.limit]);
+  const save = useMutation({
+    mutationFn: (value: number | null) => api.put('/api/settings/ai_daily_token_limit', { value }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['settings'] }); toast({ text: 'AI limit saved' }); },
+    onError: (e) => toast({ text: errorText(e), error: true }),
+  });
+  const parsed = draft.trim() === '' ? null : Number(draft);
+  const valid = parsed === null || (Number.isInteger(parsed) && parsed >= 1000 && parsed <= 100_000_000);
+  const reached = budget.limit !== null && budget.usedLast24h >= budget.limit;
+  return (
+    <form className="stack" onSubmit={(e) => { e.preventDefault(); if (valid) save.mutate(parsed); }}>
+      <label className="field">
+        <span>Daily AI limit (tokens per 24 hours)</span>
+        <div className="row">
+          <input inputMode="numeric" value={draft} placeholder="No limit" aria-invalid={!valid} onChange={(e) => setDraft(e.target.value.replace(/[^0-9]/g, ''))} />
+          <button disabled={!valid || save.isPending || parsed === budget.limit}>Save</button>
+        </div>
+      </label>
+      <p className={`small ${reached ? 'warn-text' : 'muted'}`}>
+        {budget.limit === null ? `${fmtNum(budget.usedLast24h)} tokens used in the last 24 hours, no limit set.` : `${fmtNum(budget.usedLast24h)} of ${fmtNum(budget.limit)} tokens used in the last 24 hours.`}
+        {reached ? ' AI drafts and AI query expansion are paused until usage falls below the limit.' : ''}
+        {' '}Applies to caption drafts and background exploration alike. Leave empty for no limit.
+      </p>
+      {!valid && <p className="small warn-text">Enter a whole number between 1,000 and 100,000,000, or leave it empty.</p>}
+    </form>
   );
 }
 
@@ -69,6 +101,7 @@ function General() {
             Allow external AI
           </label>
           <p className="small muted">{s.settings.external_ai_enabled.description}</p>
+          <AiLimit budget={s.ai.budget} />
           {s.ai.usageLast30Days.length ? (
             <table className="data"><thead><tr><th>Purpose</th><th className="num">Calls</th><th className="num">OK</th><th className="num">Tokens in/out</th></tr></thead>
               <tbody>{s.ai.usageLast30Days.map((u, i) => <tr key={i}><td className="small">{u.purpose.replace(/_/g, ' ')}<div className="muted">{u.model}</div></td><td className="num">{u.calls}</td><td className="num">{u.succeeded}</td><td className="num">{fmtNum(u.input_tokens)} / {fmtNum(u.output_tokens)}</td></tr>)}</tbody>

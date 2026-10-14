@@ -20,6 +20,12 @@ interface SavedSearch { id: string; name: string; scope: string; params: Record<
 const DEFAULT_STATUSES: Status[] = ['discovered', 'saved', 'approved_consideration'];
 const FILTER_KEYS = ['q', 'semantic', 'status', 'source', 'mediaType', 'creator', 'tag', 'periodFrom', 'periodTo', 'sessionId', 'duplicates', 'minScore', 'sort', 'mode', 'novelty'] as const;
 const PAGE = 40;
+type View = 'dense' | 'research';
+const VIEW_KEY = 'radar.feedView';
+
+function readView(): View {
+  try { return localStorage.getItem(VIEW_KEY) === 'research' ? 'research' : 'dense'; } catch { return 'dense'; }
+}
 
 export function useFeedParams() {
   const [sp, setSp] = useSearchParams();
@@ -66,6 +72,11 @@ export function RadarPage() {
   const [rejecting, setRejecting] = useState<FeedItem | null>(null);
   const [help, setHelp] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [view, setViewState] = useState<View>(readView);
+  const setView = useCallback((v: View) => {
+    setViewState(v);
+    try { localStorage.setItem(VIEW_KEY, v); } catch { /* per-viewer convenience only */ }
+  }, []);
   const status = useStatusChange();
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -95,13 +106,14 @@ export function RadarPage() {
         case 'x': if (item) act(item, 'rejected'); break;
         case 'h': if (item) act(item, 'archived'); break;
         case '/': e.preventDefault(); searchRef.current?.focus(); break;
+        case 'v': setView(view === 'dense' ? 'research' : 'dense'); break;
         case '?': setHelp(true); break;
         default: return;
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [items, sel, act, nav, rejecting]);
+  }, [items, sel, act, nav, rejecting, view, setView]);
 
   // Load more when the sentinel scrolls into view
   const sentinel = useRef<HTMLDivElement>(null);
@@ -128,6 +140,9 @@ export function RadarPage() {
       >
         <Seg label="Sort" value={sort} onChange={(v) => set({ sort: v === 'ranked' ? undefined : v })} options={[
           { value: 'ranked', label: 'Ranked' }, { value: 'recent', label: 'Recent' }, { value: 'ref_number', label: 'ID' },
+        ]} />
+        <Seg label="View" value={view} onChange={setView} options={[
+          { value: 'dense', label: 'Dense' }, { value: 'research', label: 'Research' },
         ]} />
         <button className="ghost sm" onClick={() => setHelp(true)} title="Keyboard shortcuts"><kbd>?</kbd></button>
       </PageHead>
@@ -246,11 +261,19 @@ export function RadarPage() {
                 )}
               </Empty>
             ) : null}
-            <Masonry>
-              {items.map((it, i) => (
-                <FeedCard key={it.id} item={it} idx={i} selected={i === sel} onSelect={() => setSel(i)} onAct={act} />
-              ))}
-            </Masonry>
+            {view === 'dense' ? (
+              <Masonry>
+                {items.map((it, i) => (
+                  <FeedCard key={it.id} item={it} idx={i} selected={i === sel} onSelect={() => setSel(i)} onAct={act} />
+                ))}
+              </Masonry>
+            ) : (
+              <div className="research-list">
+                {items.map((it, i) => (
+                  <FeedCard key={it.id} item={it} idx={i} selected={i === sel} onSelect={() => setSel(i)} onAct={act} detailed />
+                ))}
+              </div>
+            )}
             <div ref={sentinel} />
             {feed.hasNextPage ? (
               <div className="row" style={{ justifyContent: 'center', marginTop: 8 }}>
@@ -296,7 +319,12 @@ function Masonry({ children }: { children: ReactNode[] }) {
   );
 }
 
-function FeedCard({ item, idx, selected, onSelect, onAct }: { item: FeedItem; idx: number; selected: boolean; onSelect: () => void; onAct: (i: FeedItem, s: Status) => void }) {
+const ATTRIBUTION_LABEL: Record<string, string> = {
+  source_provided: 'Creator as stated by the source', editor_confirmed: 'Creator confirmed by editor',
+  reported_incorrect: 'Attribution reported incorrect', unknown: 'Creator not stated by the source',
+};
+
+function FeedCard({ item, idx, selected, onSelect, onAct, detailed = false }: { item: FeedItem; idx: number; selected: boolean; onSelect: () => void; onAct: (i: FeedItem, s: Status) => void; detailed?: boolean }) {
   const ratio = item.width && item.height ? `${item.width} / ${item.height}` : undefined;
   return (
     <article className={`card ${selected ? 'selected' : ''}`} data-idx={idx} onMouseDown={onSelect} aria-label={`${item.refLabel} ${item.title ?? ''}`}>
@@ -318,9 +346,21 @@ function FeedCard({ item, idx, selected, onSelect, onAct }: { item: FeedItem; id
           {item.creatorName ?? <span className="muted">Creator unknown</span>}
           {item.publishedRaw ? ` · ${item.publishedRaw}` : ''}
         </div>
-        <div className="by small muted">{item.sourceName}</div>
-        {item.reasons.length ? <div className="why">↳ {item.reasons[0]}</div> : null}
-        {item.caveats.length ? <div className="why">! {item.caveats.slice(0, 2).join(' · ')}</div> : null}
+        <div className="by small muted">{item.sourceName}{detailed ? ` · found ${new Date(item.discoveredAt).toLocaleDateString('en-GB')}` : ''}</div>
+        {detailed ? (
+          <>
+            <div className="by small muted">{ATTRIBUTION_LABEL[item.attributionStatus] ?? item.attributionStatus}{item.score !== null ? ` · score ${item.score.toFixed(2)}` : ''}</div>
+            {item.tags.length ? <div className="tags">{item.tags.slice(0, 8).map((t) => <span key={t} className="tagchip" style={{ paddingRight: 6, margin: 0 }}>{t}</span>)}</div> : null}
+            {item.reasons.map((r) => <div key={r} className="why">↳ {r}</div>)}
+            {item.caveats.map((c) => <div key={c} className="why">! {c}</div>)}
+            {item.redundancy.map((r) => <div key={r.label} className="why">− {r.label}</div>)}
+          </>
+        ) : (
+          <>
+            {item.reasons.length ? <div className="why">↳ {item.reasons[0]}</div> : null}
+            {item.caveats.length ? <div className="why">! {item.caveats.slice(0, 2).join(' · ')}</div> : null}
+          </>
+        )}
       </div>
       <div className="actions">
         <button onClick={() => onAct(item, 'saved')} disabled={item.status === 'saved'} title="Save for research (s)">Save</button>
@@ -376,7 +416,7 @@ function SavedSearches({ params, onApply }: { params: Record<string, string>; on
 function ShortcutHelp({ onClose }: { onClose: () => void }) {
   const rows: [string, string][] = [
     ['j / k', 'Next / previous reference'], ['o or Enter', 'Open detail'], ['s', 'Save for research'], ['a', 'Approve for editorial consideration'],
-    ['x', 'Reject (asks for a reason)'], ['h', 'Archive'], ['/', 'Focus search'], ['g then r/e/a/c/i/s', 'Go to RADAR / Explore / Archive / Studio / Insights / Sources'],
+    ['x', 'Reject (asks for a reason)'], ['h', 'Archive'], ['v', 'Switch dense / research view'], ['/', 'Focus search'], ['g then r/e/a/c/i/s', 'Go to RADAR / Explore / Archive / Studio / Insights / Sources'],
   ];
   return (
     <Dialog title="Keyboard shortcuts" onClose={onClose}>

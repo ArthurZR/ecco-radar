@@ -81,6 +81,34 @@ export async function externalAiEnabled(): Promise<boolean> {
   return r.rows[0]?.value === true;
 }
 
+/** Default cap on AI tokens (input + output) per rolling 24 hours. The editor can change or remove it. */
+export const DEFAULT_DAILY_TOKEN_LIMIT = 200_000;
+
+/**
+ * The measurable part of AI cost: tokens recorded in `ai_usage` over the last 24 hours, against the
+ * editor's limit (null = no limit). The check runs before each call, so one call can end slightly
+ * above the limit; the next one is refused.
+ */
+export async function aiBudget(): Promise<{ limit: number | null; usedLast24h: number }> {
+  const [setting, used] = await Promise.all([
+    db().query<{ value: number | null }>(`SELECT value FROM app_settings WHERE key = 'ai_daily_token_limit'`),
+    db().query<{ used: number }>(
+      `SELECT coalesce(sum(coalesce(input_tokens,0) + coalesce(output_tokens,0)),0)::int AS used
+         FROM ai_usage WHERE created_at > now() - interval '24 hours'`,
+    ),
+  ]);
+  const limit = setting.rows.length ? setting.rows[0]!.value : DEFAULT_DAILY_TOKEN_LIMIT;
+  return { limit, usedLast24h: used.rows[0]!.used };
+}
+
+async function budgetReason(): Promise<string | null> {
+  const { limit, usedLast24h } = await aiBudget();
+  if (limit !== null && usedLast24h >= limit) {
+    return `The daily AI limit is reached (${usedLast24h.toLocaleString('en')} of ${limit.toLocaleString('en')} tokens in the last 24 hours). Raise it in Settings or wait.`;
+  }
+  return null;
+}
+
 let override: TextGenerationProvider | null | undefined;
 /** Test hook. */
 export function setTextProvider(p: TextGenerationProvider | null | undefined): void {
@@ -89,9 +117,16 @@ export function setTextProvider(p: TextGenerationProvider | null | undefined): v
 
 /** Returns the configured provider, or a reason why none is available. */
 export async function getTextProvider(): Promise<{ provider: TextGenerationProvider } | { provider: null; reason: string }> {
-  if (override !== undefined) return override ? { provider: override } : { provider: null, reason: 'disabled in test' };
-  const key = env().ANTHROPIC_API_KEY;
-  if (!key) return { provider: null, reason: 'No AI provider is configured (ANTHROPIC_API_KEY is not set).' };
-  if (!(await externalAiEnabled())) return { provider: null, reason: 'External AI processing is turned off in Settings.' };
-  return { provider: new AnthropicProvider(key, env().ANTHROPIC_MODEL) };
+  let provider: TextGenerationProvider;
+  if (override !== undefined) {
+    if (!override) return { provider: null, reason: 'disabled in test' };
+    provider = override;
+  } else {
+    const key = env().ANTHROPIC_API_KEY;
+    if (!key) return { provider: null, reason: 'No AI provider is configured (ANTHROPIC_API_KEY is not set).' };
+    if (!(await externalAiEnabled())) return { provider: null, reason: 'External AI processing is turned off in Settings.' };
+    provider = new AnthropicProvider(key, env().ANTHROPIC_MODEL);
+  }
+  const overBudget = await budgetReason();
+  return overBudget ? { provider: null, reason: overBudget } : { provider };
 }

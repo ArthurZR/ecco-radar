@@ -9,17 +9,19 @@
   "scripts": {
     "dev": "npm run dev -w server & npm run dev -w web",
     "build": "npm run build -w server && npm run build -w web",
-    "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web && tsc -p e2e",
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "npm run test -w server && npm run test -w web",
-    "migrate": "npm run migrate -w server"
+    "migrate": "npm run migrate -w server",
+    "e2e": "playwright test"
   },
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "1.56.1",
     "eslint": "^10.12.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.13.0",

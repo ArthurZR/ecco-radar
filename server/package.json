@@ -10,7 +10,8 @@
     "migrate": "tsx --env-file=.env src/db/migrate-cli.ts",
     "create-user": "tsx --env-file=.env src/auth/create-user-cli.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "e2e:server": "tsx scripts/e2e-server.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",

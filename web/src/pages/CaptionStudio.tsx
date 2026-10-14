@@ -8,6 +8,9 @@ import { wordDiff } from '../lib/diff';
 import { Empty, ErrorBox, Loading, PageHead, StatusBadge, Thumb, errorText, useToast } from '../components/ui';
 import { PublishedDialog, useStatusChange } from '../components/StatusActions';
 
+/** Mirrors the server's pipeline order (server/src/modules/references/status.ts) so buttons explain themselves. */
+const CAN_DRAFT_FROM: string[] = ['approved_consideration', 'saved', 'reviewed', 'approved_publication'];
+
 interface Fact { key: string; label: string; value: string; basis: string; sourceUrl?: string }
 interface Flag { claim: string; reason: string }
 interface Draft {
@@ -311,8 +314,8 @@ function Studio({ refId }: { refId: string }) {
               <div className="stack" style={{ borderTop: '1px solid var(--rule)', paddingTop: 8 }}>
                 <div className="row">
                   <span className="small">Pipeline:</span>
-                  <button className="sm" disabled={r.status === 'caption_draft'} onClick={() => status.mutate({ refLabel: r.refLabel, change: { status: 'caption_draft' }, previous: r.status })}>Mark caption draft</button>
-                  <button className="sm" disabled={!savedFinal || r.status === 'reviewed' || dirty} title={!savedFinal || dirty ? 'Save the final caption first' : ''} onClick={() => status.mutate({ refLabel: r.refLabel, change: { status: 'reviewed' }, previous: r.status })}>Mark reviewed</button>
+                  <button className="sm" disabled={!CAN_DRAFT_FROM.includes(r.status)} title={r.status === 'caption_draft' ? 'Already a caption draft' : !CAN_DRAFT_FROM.includes(r.status) ? 'Save or approve the reference for editorial consideration first' : ''} onClick={() => status.mutate({ refLabel: r.refLabel, change: { status: 'caption_draft' }, previous: r.status })}>Mark caption draft</button>
+                  <button className="sm" disabled={!savedFinal || dirty || !['caption_draft', 'approved_publication'].includes(r.status)} title={!savedFinal || dirty ? 'Save the final caption first' : !['caption_draft', 'approved_publication'].includes(r.status) ? 'Only after Caption draft' : ''} onClick={() => status.mutate({ refLabel: r.refLabel, change: { status: 'reviewed' }, previous: r.status })}>Mark reviewed</button>
                   <button className="sm" disabled={r.status !== 'reviewed'} title={r.status !== 'reviewed' ? 'Only after Reviewed' : ''} onClick={() => status.mutate({ refLabel: r.refLabel, change: { status: 'approved_publication' }, previous: r.status })}>Approve for manual publication</button>
                   <button className="sm" disabled={r.status !== 'approved_publication'} title={r.status !== 'approved_publication' ? 'Only after Approved for manual publication' : ''} onClick={() => setPublishing(true)}>I published it manually…</button>
                 </div>

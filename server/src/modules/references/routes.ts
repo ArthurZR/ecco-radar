@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { db } from '../../db/pool.js';
 import { badRequest, notFound } from '../../lib/errors.js';
+import { httpClient } from '../sources/registry.js';
 import { FeedQuerySchema, queryFeed } from './feed.js';
 import { getReferenceDetail } from './detail.js';
 import {
@@ -117,6 +118,31 @@ export async function referenceRoutes(app: FastifyInstance): Promise<void> {
     if (!rel || !/^previews\/[0-9a-f-]{36}\.webp$/.test(rel)) throw notFound('Cached preview');
     reply.header('Content-Type', 'image/webp').header('Cache-Control', 'private, max-age=86400');
     return reply.send(createReadStream(join(mediaDir(), rel)));
+  });
+
+  /**
+   * Fallback for previews a browser cannot load straight from the source (some image servers turn
+   * away hot-linked requests). RADAR fetches the same preview URL the source published, through the
+   * SSRF-guarded client, and passes it to the browser without keeping a copy (no-store).
+   */
+  app.get('/api/references/:ref/preview-proxy', { config: { rateLimit: { max: 300, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const n = parseRefNumber(RefParam.parse(req.params).ref);
+    if (n === null) throw badRequest('Invalid reference number');
+    const r = (await db().query<{ source_id: string; preview_url: string | null; thumbnail_url: string | null }>(
+      'SELECT source_id, preview_url, thumbnail_url FROM reference_items WHERE ref_number = $1 AND deleted_at IS NULL', [n],
+    )).rows[0];
+    const url = r?.thumbnail_url ?? r?.preview_url;
+    if (!r || !url) throw notFound('Preview');
+    let res;
+    try {
+      res = await httpClient().getBytes(url, { maxBytes: 8_000_000, retries: 0, timeoutMs: 15_000, rateKey: `image:${r.source_id}`, ratePerMinute: 120, headers: { accept: 'image/*' } });
+    } catch {
+      throw notFound('Preview');
+    }
+    // Raster images only: an SVG opened directly could run script on RADAR's own address.
+    if (!/^image\/(jpeg|png|gif|webp|avif|tiff)/i.test(res.contentType)) throw notFound('Preview');
+    reply.header('Content-Type', res.contentType).header('Cache-Control', 'private, no-store').header('X-Content-Type-Options', 'nosniff');
+    return reply.send(res.body);
   });
 
   app.post('/api/references/:ref/detected-text/run', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req) => {

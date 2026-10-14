@@ -237,3 +237,19 @@ test('explore: a schedule is saved switched off, edited later, and shows its pro
   await expect(page.getByText('Schedule updated.')).toBeVisible();
   await expect(row).toContainText('≤25 results');
 });
+
+test('year fields accept a year typed one digit at a time', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/explore');
+  const from = page.getByLabel('From year');
+  await from.pressSequentially('1998');
+  await expect(from).toHaveValue('1998');
+  const to = page.getByLabel('To year');
+  await to.pressSequentially('20x04');
+  await expect(to).toHaveValue('2004');
+  await page.goto('/');
+  const feedFrom = page.getByLabel('From year');
+  await feedFrom.pressSequentially('1999');
+  await expect(feedFrom).toHaveValue('1999');
+  await expect(page).toHaveURL(/periodFrom=1999/);
+});

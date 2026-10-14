@@ -63,7 +63,8 @@ export const artInstituteChicago: SourceAdapter = {
     const byId = new Map((works.data ?? []).map((w) => [w.id, w]));
     const items = hits.data.flatMap((h) => {
       const w = byId.get(h.id);
-      if (!w) return [];
+      // Works the museum has not photographed have nothing to show.
+      if (!w || !w.image_id) return [];
       return [{
         sourceId: this.id,
         sourceItemId: String(w.id),

@@ -1,6 +1,8 @@
 import { stripHtml } from '../../../lib/text.js';
 import { SourceError, safeUrl, type SourceAdapter } from '../adapter.js';
 
+const VISUAL_MIME = /^image\/(jpeg|png|gif|webp|svg\+xml|tiff)$/;
+
 interface CommonsPage {
   pageid: number;
   title: string;
@@ -51,11 +53,12 @@ export const wikimediaCommons: SourceAdapter = {
     'Public MediaWiki Action API (no key). Searches the File namespace and reads author, date, description and licence from extmetadata. Wikimedia asks clients to send a User-Agent with contact details (SOURCE_CONTACT).',
   missingConfiguration: () => [],
   async search({ query, page, perPage }, { http }) {
-    const offset = (page - 1) * perPage;
+    const fetchCount = Math.min(50, perPage * 2);
+    const offset = (page - 1) * fetchCount;
     const url = new URL(this.baseUrl);
     Object.entries({
       action: 'query', format: 'json', formatversion: '2', generator: 'search', gsrsearch: query,
-      gsrnamespace: '6', gsrlimit: String(perPage), gsroffset: String(offset), prop: 'imageinfo',
+      gsrnamespace: '6', gsrlimit: String(fetchCount), gsroffset: String(offset), prop: 'imageinfo',
       iiprop: 'url|size|mime|extmetadata', iiurlwidth: '800',
       iiextmetadatafilter: 'Artist|DateTimeOriginal|DateTime|ImageDescription|LicenseShortName|UsageTerms|Credit|Categories|ObjectName',
     }).forEach(([k, v]) => url.searchParams.set(k, v));
@@ -67,6 +70,8 @@ export const wikimediaCommons: SourceAdapter = {
       const pageUrl = safeUrl(info?.descriptionurl) ?? `https://commons.wikimedia.org/wiki/${encodeURIComponent(p.title.replace(/ /g, '_'))}`;
       if (!info) return [];
       const mime = info.mime ?? '';
+      // Pictures only: scanned PDFs, video and audio are mostly records, not visual references.
+      if (!VISUAL_MIME.test(mime)) return [];
       const mediaType = mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'unknown';
       const categories = (meta(info, 'Categories') ?? '').split('|').map((c) => c.trim()).filter((c) => c && !/^(CC-|GFDL|PD-|Self-published|License|Files with|Uploaded|Media needing|Pages with)/i.test(c));
       const artist = meta(info, 'Artist');
@@ -91,6 +96,6 @@ export const wikimediaCommons: SourceAdapter = {
         researchSources: [],
       }];
     });
-    return { items, hasMore: data.continue?.gsroffset !== undefined };
+    return { items: items.slice(0, perPage), hasMore: data.continue?.gsroffset !== undefined };
   },
 };

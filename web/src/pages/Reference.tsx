@@ -128,7 +128,7 @@ export function ReferencePage() {
           <div>
             <div className="viewer">
               {r.mediaType === 'image' || r.previewUrl ? (
-                <Thumb src={r.previewUrl ?? r.thumbnailUrl} fallback={r.cachedPreviewUrl} alt={r.title ?? r.refLabel} />
+                <Thumb src={r.previewUrl ?? r.thumbnailUrl} fallback={r.cachedPreviewUrl} refNumber={r.refNumber} alt={r.title ?? r.refLabel} />
               ) : (
                 <div className="noimg" style={{ aspectRatio: '4/3', display: 'flex' }}>No preview</div>
               )}

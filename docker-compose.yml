@@ -1,0 +1,23 @@
+# Local or single-server deployment. Secrets come from .env (never committed).
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: radar
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: radar
+    volumes:
+      - radar-db:/var/lib/postgresql/data
+    restart: unless-stopped
+  app:
+    build: .
+    depends_on: [db]
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://radar:${POSTGRES_PASSWORD}@db:5432/radar
+    ports:
+      - '127.0.0.1:8787:8787'
+    restart: unless-stopped
+volumes:
+  radar-db:

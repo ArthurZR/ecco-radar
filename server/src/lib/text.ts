@@ -54,7 +54,8 @@ export function extractMentions(text: string | null | undefined): string[] {
 /** Years mentioned in text (1850–2039), used as weak period evidence. */
 export function extractYears(text: string | null | undefined): number[] {
   if (!text) return [];
-  return [...new Set((text.match(/\b(18[5-9]\d|19\d\d|20[0-3]\d)\b/g) ?? []).map(Number))];
+  // also matches decades written as "1990s" / "1990's"
+  return [...new Set([...text.matchAll(/\b(18[5-9]\d|19\d\d|20[0-3]\d)(?:['’]?s)?\b/g)].map((m) => Number(m[1])))];
 }
 
 export function jaccard<T>(a: Set<T>, b: Set<T>): number {

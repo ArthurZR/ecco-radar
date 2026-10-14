@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { db } from '../../db/pool.js';
+import { env } from '../../config/env.js';
 import { badRequest, notFound, AppError } from '../../lib/errors.js';
 import { enqueue } from '../jobs/queue.js';
 import { createSession, ExplorationParamsSchema } from './engine.js';
@@ -19,10 +20,17 @@ const ScheduleSchema = z.object({
 });
 
 export async function explorationRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/api/exploration/options', async () => ({
-    sources: searchableAdapters().map((a) => ({ id: a.id, name: a.name })),
-    modes: MODE_STRATEGIES,
-  }));
+  app.get('/api/exploration/options', async () => {
+    const enabled = new Map((await db().query<{ id: string; enabled: boolean }>('SELECT id, enabled FROM sources')).rows.map((r) => [r.id, r.enabled]));
+    return {
+      sources: searchableAdapters().map((a) => {
+        const missing = a.missingConfiguration(env());
+        const notReady = missing.length ? `needs ${missing.join(', ')}` : enabled.get(a.id) === false ? 'disabled' : null;
+        return { id: a.id, name: a.name, ready: !notReady, notReady };
+      }),
+      modes: MODE_STRATEGIES,
+    };
+  });
 
   app.post('/api/explorations', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req) => {
     const params = ExplorationParamsSchema.parse(req.body);

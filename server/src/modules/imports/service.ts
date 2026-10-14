@@ -7,7 +7,7 @@ import { extractHashtags, extractMentions, extractYears, tokenize } from '../../
 import { AppError, badRequest } from '../../lib/errors.js';
 import { invalidateProfile } from '../ranking/profile.js';
 import { detectDateOrder, parseCount, parseCsv, parseDateTime, type ParsedCsv } from './normalize.js';
-import { DAILY_METRICS, POST_METRICS, detectKind, suggestMapping, IMPORT_KINDS, type ImportKind, type ImportOptions } from './schemas.js';
+import { DAILY_METRICS, FIELD_ALIASES, POST_METRICS, detectKind, suggestMapping, IMPORT_KINDS, type ImportKind, type ImportOptions } from './schemas.js';
 
 export function sha256(buf: Buffer): string {
   return createHash('sha256').update(buf).digest('hex');
@@ -37,6 +37,7 @@ export async function inspectCsv(buf: Buffer, filename: string) {
     sample: csv.rows.slice(0, 5),
     detected,
     suggestions,
+    fields: Object.fromEntries(IMPORT_KINDS.map((k) => [k, Object.keys(FIELD_ALIASES[k])])) as Record<ImportKind, string[]>,
     accounts,
     dateOrder: dateCol ? detectDateOrder(csv.rows.map((r) => r[dateCol] ?? '')) : 'ISO',
     alreadyImported: prior.rows,

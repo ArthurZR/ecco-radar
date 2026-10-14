@@ -45,3 +45,10 @@ describe('CSV inspection', () => {
     expect(detectKind(['Date', 'Impressions', 'Likes', 'New follows']).kind).toBe('x_account_daily');
   });
 });
+
+import { extractYears } from '../src/lib/text.js';
+describe('extractYears', () => {
+  it('reads decades written as 1990s', () => {
+    expect(extractYears('the 1990s, 1987 and 1970’s')).toEqual([1990, 1987, 1970]);
+  });
+});

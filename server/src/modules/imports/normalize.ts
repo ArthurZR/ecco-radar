@@ -12,7 +12,7 @@ export function parseCsv(buf: Buffer): ParsedCsv {
   let text = buf.toString('utf8');
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
   // UTF-16 exports (some Excel saves) show up as NUL-padded text
-  if (text.includes('\u0000')) text = buf.toString('utf16le').replace(/^﻿/, '');
+  if (text.includes('\u0000')) text = buf.toString('utf16le').replace(/^\uFEFF/, '');
   const firstLine = text.split(/\r?\n/, 1)[0] ?? '';
   const delimiter = [',', ';', '\t'].map((d) => ({ d, n: firstLine.split(d).length })).sort((a, b) => b.n - a.n)[0]!.d;
   const records = parse(text, {
@@ -36,7 +36,7 @@ export type NumberResult = { ok: true; value: number | null } | { ok: false; err
  * Thousands separators are accepted only in unambiguous grouped form (1,234 / 1.234.567 / 1 234).
  */
 export function parseCount(raw: string | undefined): NumberResult {
-  const s = (raw ?? '').replace(/[  ]/g, ' ').trim();
+  const s = (raw ?? '').replace(/[\u00A0\u202F]/g, ' ').trim();
   if (MISSING_TOKENS.has(s.toLowerCase())) return { ok: true, value: null };
   let t = s.replace(/ (?=\d{3}\b)/g, '');
   if (/^\d{1,3}(,\d{3})+$/.test(t)) t = t.replace(/,/g, '');

@@ -20,6 +20,7 @@ import { explorationRoutes } from './modules/exploration/routes.js';
 import { rankingRoutes } from './modules/ranking/routes.js';
 import { captionRoutes } from './modules/captions/routes.js';
 import { settingsRoutes } from './modules/settings/routes.js';
+import { postMediaRoutes } from './modules/post-media/routes.js';
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -108,6 +109,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(rankingRoutes);
   await app.register(captionRoutes);
   await app.register(settingsRoutes);
+  await app.register(postMediaRoutes);
 
   // Serve the built web app from the same origin in production, or whenever WEB_DIST_DIR is set
   // explicitly (the end-to-end tests do this).

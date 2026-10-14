@@ -31,6 +31,7 @@ interface PostRow {
   format: string | null;
   published_at: string | null;
   metrics: Record<string, number>;
+  image_id: string | null;
 }
 
 export async function loadLatestPostMetrics(platform: 'instagram' | 'x'): Promise<PostRow[]> {
@@ -39,7 +40,8 @@ export async function loadLatestPostMetrics(platform: 'instagram' | 'x'): Promis
        SELECT DISTINCT ON (m.post_id, m.metric) m.post_id, m.metric, m.value
          FROM historical_post_metrics m JOIN import_batches b ON b.id = m.batch_id AND b.status = 'committed'
         ORDER BY m.post_id, m.metric, b.created_at DESC)
-     SELECT p.id, p.caption, p.permalink, p.format, p.published_at, coalesce(jsonb_object_agg(l.metric, l.value) FILTER (WHERE l.metric IS NOT NULL), '{}') AS metrics
+     SELECT p.id, p.caption, p.permalink, p.format, p.published_at, coalesce(jsonb_object_agg(l.metric, l.value) FILTER (WHERE l.metric IS NOT NULL), '{}') AS metrics,
+            (SELECT m.id FROM historical_post_media m WHERE m.post_id = p.id ORDER BY m.position, m.created_at LIMIT 1) AS image_id
        FROM historical_posts p LEFT JOIN latest l ON l.post_id = p.id
       WHERE p.platform = $1 GROUP BY p.id`,
     [platform],
@@ -117,8 +119,9 @@ export async function insightsRoutes(app: FastifyInstance): Promise<void> {
     const overall = summarize(ranked.map((x) => x.r!));
     const toPost = (x: { p: PostRow; r: number | null }) => ({
       id: x.p.id, caption: x.p.caption?.slice(0, 280) ?? null, permalink: x.p.permalink, format: x.p.format,
-      publishedAt: x.p.published_at, rate: x.r, metrics: x.p.metrics,
+      publishedAt: x.p.published_at, rate: x.r, metrics: x.p.metrics, imageId: x.p.image_id,
     });
+    const withMedia = posts.filter((p) => p.image_id).length;
     return {
       posts: posts.length,
       definitions: {
@@ -136,10 +139,15 @@ export async function insightsRoutes(app: FastifyInstance): Promise<void> {
       byHashtag: groupStats(posts, feat('hashtag'), rate).slice(0, 25),
       byTerm: groupStats(posts, feat('term'), rate).slice(0, 25),
       byPeriodMentioned: groupStats(posts, feat('period'), rate),
+      byTone: groupStats(posts, feat('tone'), rate),
+      byColourfulness: groupStats(posts, feat('colourfulness'), rate),
+      postsWithImages: withMedia,
       monthly: monthlyAll,
       top: ranked.slice(0, 10).map(toPost),
       bottom: ranked.slice(-5).reverse().map(toPost),
-      visualAnalysis: 'Not available: the export contains captions and links only. Visual characteristics have not been analysed.',
+      visualAnalysis: withMedia === 0
+        ? 'Not available: the analytics export contains captions and links only. Add post images in Insights → Post images to analyse colour and tone.'
+        : `Colour and tone measured from the cover image of ${withMedia} of ${posts.length} posts (colour-tone-v1). The other ${posts.length - withMedia} have text only. Subjects and style are not recognised.`,
     };
   });
 

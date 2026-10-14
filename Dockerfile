@@ -18,6 +18,8 @@ RUN npm ci --omit=dev -w server && npm cache clean --force
 COPY --from=build /app/server/dist server/dist
 COPY --from=build /app/web/dist web/dist
 WORKDIR /app/server
+# eccö's own post images (downscaled copies) live here; docker-compose mounts a volume on it.
+RUN mkdir -p /app/server/data/media && chown -R node:node /app/server/data
 USER node
 EXPOSE 8787
 CMD ["node", "dist/index.js"]

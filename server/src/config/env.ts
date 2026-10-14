@@ -21,6 +21,9 @@ const EnvSchema = z.object({
   ANTHROPIC_API_KEY: optionalSecret,
   ANTHROPIC_MODEL: z.string().default('claude-opus-5-5'),
   WEB_DIST_DIR: z.string().optional(),
+  // Where downscaled copies of eccö's own post images are kept. Relative paths resolve from the
+  // server's working directory.
+  MEDIA_DIR: z.string().min(1).default('data/media'),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

@@ -54,7 +54,7 @@ test('every section of the app', async ({ page }) => {
   await page.getByRole('button', { name: /Commit 21 row/ }).click();
   await expect(page.getByText('SYNTHETIC-x-a11y.csv').first()).toBeVisible();
 
-  for (const name of ['Overview', 'Instagram posts', 'X daily', 'Editorial', 'Imports']) {
+  for (const name of ['Overview', 'Instagram posts', 'X daily', 'Editorial', 'Imports', 'Post images']) {
     await tab(page, 'Section', name);
     if (name === 'X daily') await expect(page.locator('svg[role="img"]').first()).toBeVisible();
     await audit(page, `Insights ${name}`);

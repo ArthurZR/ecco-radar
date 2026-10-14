@@ -96,8 +96,11 @@ export async function referenceRoutes(app: FastifyInstance): Promise<void> {
   // Facets for filter controls
   app.get('/api/references/:ref/performance', async (req) => {
     const id = await idForRef(RefParam.parse(req.params).ref);
-    const r = await db().query<{ text_embedding: number[] | null }>('SELECT text_embedding FROM reference_items WHERE id = $1', [id]);
-    return referencePerformance(id, r.rows[0]?.text_embedding ?? null);
+    const r = await db().query<{ text_embedding: number[] | null; visual_embedding: number[] | null; visual_hash: string | null }>(
+      'SELECT text_embedding, visual_embedding, visual_hash FROM reference_items WHERE id = $1', [id],
+    );
+    const row = r.rows[0];
+    return referencePerformance(id, row?.text_embedding ?? null, { embedding: row?.visual_embedding ?? null, hash: row?.visual_hash ?? null });
   });
 
   app.get('/api/clusters', async (req) => {

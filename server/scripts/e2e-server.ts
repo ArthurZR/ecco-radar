@@ -5,6 +5,8 @@
  * does not contain "test". All outbound HTTP is replaced by a client that refuses every request:
  * the browser tests run without touching any real source.
  */
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -23,6 +25,8 @@ Object.assign(process.env, {
   SOURCE_CONTACT: 'e2e@example.com',
   RUN_WORKER: 'false',
   WEB_DIST_DIR: path.resolve(here, '../../web/dist'),
+  // Post images uploaded by the tests go to a throwaway folder.
+  MEDIA_DIR: mkdtempSync(path.join(tmpdir(), 'radar-e2e-media-')),
 });
 delete process.env.ANTHROPIC_API_KEY;
 

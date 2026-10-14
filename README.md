@@ -82,6 +82,32 @@ import can be rolled back.
 Do not commit analytics files. `*.csv` and `data/` are git-ignored. Paths to your files are never part
 of the application; you upload them through the UI.
 
+### Post images
+
+Analytics exports carry no images, so post-level insights start text-only. **Insights → Post images**
+adds them:
+
+- **From Instagram's "Download your information"** (Content, JSON format): upload the ZIP as it
+  arrives. Each exported post is tied to an imported post by caption and date (a day's shift is
+  allowed for time zones); repeated captions are settled by time only when one post is clearly
+  closest, and posts without a caption need the exact minute. Anything unclear is listed and left
+  alone. Videos are skipped. An import can be undone.
+- **One at a time**: attach an image to any imported post.
+
+RADAR keeps a 640 px WebP copy of each image in `MEDIA_DIR` (default `server/data/media`; a Docker
+volume in Compose) and stores the same local colour-tone-v1 vector and dhash-64 hash it uses for
+references. With images present:
+
+- references whose preview is near-identical to an eccö post are flagged "eccö already posted this
+  image" and get the historical exposure penalty;
+- visual affinity also compares with eccö's own post images (from 10 posts with images);
+- audience resonance can also draw on posts with similar colour and tone (from 20 posts with metrics
+  and images), alongside caption wording;
+- Insights groups engagement by the cover image's tone and colourfulness, measured from pixels.
+
+None of this recognises subjects or style. The Instagram export format was implemented from its
+documented structure and tested with synthetic archives; it has not yet been run on a real download.
+
 ## Deploying
 
 The simplest path is one small VM (or any Docker host) with HTTPS in front:
@@ -124,6 +150,11 @@ With Docker:
 docker compose exec -T db pg_dump -U radar -Fc radar > radar-$(date +%F).dump
 docker compose exec -T db pg_restore -U radar --clean --if-exists -d radar < radar-YYYY-MM-DD.dump
 ```
+
+Post images are files, not database rows. Back up the media folder too (with Docker:
+`docker run --rm -v ecco-radar_radar-media:/m -v "$PWD":/out busybox tar czf /out/radar-media-$(date +%F).tgz -C /m .`;
+the volume name is prefixed with your Compose project name). They can always be re-imported from the
+Instagram download instead.
 
 Keep copies off the server. Reference IDs come from a database sequence that is part of the backup,
 so a restore keeps every `#00001`-style ID it contains and continues numbering after them. References

@@ -1,3 +1,7 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 process.env.NODE_ENV = 'test';
 // Tests truncate tables, so they never use DATABASE_URL (which may point at real data).
 const testUrl = process.env.TEST_DATABASE_URL ?? 'postgres://radar:radar@localhost:5432/radar_test';
@@ -8,3 +12,5 @@ process.env.DATABASE_URL = testUrl;
 process.env.SESSION_SECRET ??= 'test-secret-0123456789abcdef0123456789abcdef';
 process.env.APP_ORIGIN ??= 'http://localhost:5173';
 process.env.SOURCE_CONTACT ??= 'test@example.com';
+// Post images go to a throwaway folder, never the real media directory.
+process.env.MEDIA_DIR = mkdtempSync(join(tmpdir(), 'radar-media-test-'));

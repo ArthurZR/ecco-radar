@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import { fmtDate, fmtDateTime, fmtNum, fmtPct } from '../lib/format';
 import { Empty, ErrorBox, Loading, PageHead, Seg, errorText, useToast } from '../components/ui';
 import { LineChart } from '../components/charts';
+import { PostImages } from '../components/PostImages';
 
 interface Summary { n: number; median: number | null; p25: number | null; p75: number | null; min: number | null; max: number | null }
 type Group = Summary & { key: string };
@@ -14,16 +15,17 @@ interface Overview {
   metricCoverage: { platform: string; metric: string; posts: number }[];
   batches: { committed: number; rolled_back: number };
 }
-interface IgPost { id: string; caption: string | null; permalink: string | null; format: string | null; publishedAt: string | null; rate: number; metrics: Record<string, number> }
+interface IgPost { id: string; caption: string | null; permalink: string | null; format: string | null; publishedAt: string | null; rate: number; metrics: Record<string, number>; imageId: string | null }
 interface Instagram {
   posts: number; definitions: Record<string, string>; metrics: Record<string, Summary>;
   engagementPerReach: Summary; savesPerReach: Summary; sharesPerReach: Summary;
   byFormat: Group[]; byCaptionLength: Group[]; byHashtag: Group[]; byTerm: Group[]; byPeriodMentioned: Group[]; monthly: Group[];
+  byTone: Group[]; byColourfulness: Group[]; postsWithImages: number;
   top: IgPost[]; bottom: IgPost[]; visualAnalysis: string;
 }
 interface XDaily { note: string; metrics: string[]; days: ({ date: string } & Record<string, number>)[]; weekly: ({ week: string; days: number } & Record<string, number>)[]; totals: Record<string, Summary> }
 
-type Tab = 'overview' | 'instagram' | 'x' | 'editorial' | 'imports';
+type Tab = 'overview' | 'instagram' | 'x' | 'editorial' | 'imports' | 'images';
 
 export function InsightsPage() {
   const [tab, setTab] = useState<Tab>('overview');
@@ -32,7 +34,7 @@ export function InsightsPage() {
       <PageHead title="Insights" sub="Descriptive patterns from your own exports and decisions">
         <Seg label="Section" value={tab} onChange={setTab} options={[
           { value: 'overview', label: 'Overview' }, { value: 'instagram', label: 'Instagram posts' }, { value: 'x', label: 'X daily' },
-          { value: 'editorial', label: 'Editorial' }, { value: 'imports', label: 'Imports' },
+          { value: 'editorial', label: 'Editorial' }, { value: 'imports', label: 'Imports' }, { value: 'images', label: 'Post images' },
         ]} />
       </PageHead>
       <div className="content">
@@ -41,6 +43,7 @@ export function InsightsPage() {
         {tab === 'x' ? <XTab /> : null}
         {tab === 'editorial' ? <EditorialTab /> : null}
         {tab === 'imports' ? <ImportsTab /> : null}
+        {tab === 'images' ? <PostImages /> : null}
       </div>
     </>
   );
@@ -70,11 +73,13 @@ function OverviewTab({ go }: { go: (t: Tab) => void }) {
           <header><h2>Post-level data</h2></header>
           <div className="body">
             {d.postLevel.length === 0 ? <p className="small muted">None imported.</p> : (
-              <table className="data"><thead><tr><th>Platform</th><th>Account</th><th className="num">Posts</th><th>Range</th></tr></thead>
-                <tbody>{d.postLevel.map((p) => <tr key={p.platform + p.account_handle}><td>{p.platform}</td><td className="mono">{p.account_handle}</td><td className="num">{p.posts}</td><td className="small">{fmtDate(p.first)} – {fmtDate(p.last)}</td></tr>)}</tbody>
+              <table className="data"><thead><tr><th>Platform</th><th>Account</th><th className="num">Posts</th><th className="num">With images</th><th>Range</th></tr></thead>
+                <tbody>{d.postLevel.map((p) => <tr key={p.platform + p.account_handle}><td>{p.platform}</td><td className="mono">{p.account_handle}</td><td className="num">{p.posts}</td><td className="num">{p.with_media}</td><td className="small">{fmtDate(p.first)} – {fmtDate(p.last)}</td></tr>)}</tbody>
               </table>
             )}
-            <p className="small muted" style={{ marginTop: 6 }}>Each row is one post with its own metrics.</p>
+            <p className="small muted" style={{ marginTop: 6 }}>
+              Each row is one post with its own metrics. Exports carry no images; add them under <button className="sm ghost" onClick={() => go('images')}>Post images</button>.
+            </p>
           </div>
         </section>
         <section className="panel">
@@ -148,6 +153,12 @@ function InstagramTab() {
         <GroupTable title="By hashtag" groups={d.byHashtag} />
         <GroupTable title="By caption term" groups={d.byTerm} note="Terms are words in captions; they describe what eccö wrote about, not what the images show." />
         <GroupTable title="By period mentioned" groups={d.byPeriodMentioned} note="Decades or years mentioned in the caption text." />
+        {d.postsWithImages ? (
+          <>
+            <GroupTable title="By tone of the cover image" groups={d.byTone} note={`Average brightness of the first image, measured from pixels. ${d.postsWithImages} of ${d.posts} posts have an image.`} />
+            <GroupTable title="By colourfulness of the cover image" groups={d.byColourfulness} note="Average colour saturation of the first image, measured from pixels. It says nothing about subject or style." />
+          </>
+        ) : null}
         <section className="panel">
           <header><h3>Metric summaries</h3></header>
           <div className="body">
@@ -167,16 +178,18 @@ function InstagramTab() {
 }
 
 function PostTable({ title, posts }: { title: string; posts: IgPost[] }) {
+  const showImages = posts.some((p) => p.imageId);
   return (
     <section className="panel">
       <header><h3>{title}</h3><span className="small muted">reach ≥ 100</span></header>
       <div className="body scroll-x">
         <table className="data">
-          <thead><tr><th>Date</th><th>Caption</th><th className="num">Rate</th><th className="num">Reach</th></tr></thead>
+          <thead><tr><th>Date</th>{showImages ? <th><span className="sr-only">Image</span></th> : null}<th>Caption</th><th className="num">Rate</th><th className="num">Reach</th></tr></thead>
           <tbody>
             {posts.map((p) => (
               <tr key={p.id}>
                 <td className="small nowrap">{fmtDate(p.publishedAt)}</td>
+                {showImages ? <td>{p.imageId ? <img className="post-thumb" src={`/api/post-media/${p.imageId}/image`} alt={`Cover image of the ${fmtDate(p.publishedAt)} post`} loading="lazy" /> : <span className="small muted">—</span>}</td> : null}
                 <td className="small">{p.permalink ? <a href={p.permalink} target="_blank" rel="noopener noreferrer">{(p.caption ?? '(no caption)').slice(0, 90)}</a> : (p.caption ?? '').slice(0, 90)}{p.format ? <span className="muted"> · {p.format}</span> : null}</td>
                 <td className="num">{fmtPct(p.rate, 2)}</td>
                 <td className="num">{fmtNum(p.metrics.reach)}</td>
@@ -465,7 +478,11 @@ function Batches() {
   });
   const rollback = useMutation({
     mutationFn: (id: string) => api.post(`/api/imports/${id}/rollback`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['imports'] }); qc.invalidateQueries({ queryKey: ['insights'] }); toast({ text: 'Import rolled back' }); },
+    onSuccess: () => {
+      // Rolled-back posts take their images with them.
+      for (const key of ['imports', 'insights', 'post-media']) qc.invalidateQueries({ queryKey: [key] });
+      toast({ text: 'Import rolled back' });
+    },
     onError: (e) => toast({ text: errorText(e), error: true }),
   });
   const del = useMutation({
@@ -494,7 +511,7 @@ function Batches() {
                   <td className="num">{b.invalid_count ? <button className="sm ghost" onClick={() => setRowsFor(rowsFor === b.id ? null : b.id)}>{b.invalid_count}</button> : 0}</td>
                   <td><span className={`badge ${b.status === 'committed' ? 'green' : ''}`}>{b.status.replace('_', ' ')}</span></td>
                   <td className="nowrap right">
-                    {b.status === 'committed' ? <button className="sm" onClick={() => window.confirm('Roll back this import? Its posts and metrics are removed; raw rows are kept for audit.') && rollback.mutate(b.id)}>Roll back</button> : null}
+                    {b.status === 'committed' ? <button className="sm" onClick={() => window.confirm('Roll back this import? Its posts and metrics are removed, along with any images attached to those posts; raw rows are kept for audit.') && rollback.mutate(b.id)}>Roll back</button> : null}
                     {b.status === 'rolled_back' ? <button className="sm danger" onClick={() => window.confirm('Delete this batch and its raw rows permanently?') && del.mutate(b.id)}>Delete</button> : null}
                   </td>
                 </tr>

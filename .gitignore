@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*.log
+coverage/
+# Private analytics exports must never be committed
+data/
+*.csv
+!server/test/fixtures/*.csv

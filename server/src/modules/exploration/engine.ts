@@ -3,6 +3,7 @@ import { db } from '../../db/pool.js';
 import { textEmbedder } from '../../lib/embedding.js';
 import { parseLooseDate } from '../../lib/dates.js';
 import { ingestReference } from '../references/ingest.js';
+import { INSTITUTIONAL_CREATOR, assessResult, type SetAsideReason } from './quality.js';
 import type { ProvenanceStep } from '../references/types.js';
 import { runSourceSearch } from '../sources/service.js';
 import { httpClient } from '../sources/registry.js';
@@ -37,6 +38,7 @@ export const ExplorationParamsSchema = z.object({
 export type ExplorationParams = z.infer<typeof ExplorationParamsSchema>;
 
 interface SessionRow {
+  set_aside?: Partial<Record<SetAsideReason, number>>;
   id: string;
   query: string;
   concepts: string[];
@@ -170,6 +172,7 @@ export async function runExploration(sessionId: string): Promise<void> {
 
   let newCount = s.new_count;
   let resultsCount = s.results_count;
+  const setAside: Record<SetAsideReason, number> = { no_preview: 0, not_visual: 0, administrative: 0, off_topic: 0, ...(s.set_aside ?? {}) };
   const seenQueries = new Set<string>();
   const perQuerySource = Math.max(5, Math.min(20, Math.ceil(s.max_results / Math.max(1, s.source_ids.length * 2))));
 
@@ -213,6 +216,11 @@ export async function runExploration(sessionId: string): Promise<void> {
         for (const item of out.result!.items) {
           rank++;
           if (!withinPeriod(item.publishedRaw, s.period_from, s.period_to)) continue;
+          const verdict = assessResult(item, q.query);
+          if (!verdict.keep) {
+            setAside[verdict.reason]++;
+            continue;
+          }
           if (newCount >= s.max_results) break;
           try {
             const scoreable = {
@@ -233,7 +241,7 @@ export async function runExploration(sessionId: string): Promise<void> {
             resultsCount++;
             qResults++;
             if (res.created) newCount++;
-            if (item.creatorName && !creatorsSeen.includes(item.creatorName)) creatorsSeen.push(item.creatorName);
+            if (item.creatorName && !INSTITUTIONAL_CREATOR.test(item.creatorName) && !creatorsSeen.includes(item.creatorName)) creatorsSeen.push(item.creatorName);
           } catch (e) {
             qErrors.push(`${sourceId}: could not store an item (${(e as Error).message.slice(0, 200)})`);
           }
@@ -244,7 +252,7 @@ export async function runExploration(sessionId: string): Promise<void> {
         [q.id, qErrors.length && qResults === 0 ? 'failed' : 'done', qResults, qErrors.length ? qErrors.join('; ').slice(0, 2000) : null],
       );
       errors.push(...qErrors);
-      await db().query('UPDATE exploration_sessions SET results_count = $2, new_count = $3 WHERE id = $1', [sessionId, resultsCount, newCount]);
+      await db().query('UPDATE exploration_sessions SET results_count = $2, new_count = $3, set_aside = $4 WHERE id = $1', [sessionId, resultsCount, newCount, setAside]);
     }
 
     // Expand into the next level, bounded by the remaining query budget.

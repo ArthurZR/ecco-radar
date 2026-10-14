@@ -93,6 +93,19 @@ strategies so no single one dominates. The engine runs queries breadth-first up 
 `maxQueries` and `maxResults`, checkpointing after each query so pause, resume and cancel work, and
 records the full path for every result.
 
+### Result quality gate
+
+Live tests (2026-10-14) showed full-text sources answer loosely: a search for "Y2K web interfaces"
+returned congressional hearings, committee videos and museum works that share no words with the
+query. `exploration/quality.ts` now sets results aside before they reach the feed when they have
+no image, are video/audio/software, have the title of an administrative record, or match too few
+of the search words (two of three or more). Each run counts what it set aside by reason
+(`exploration_sessions.set_aside`, migration 007) and Explore shows it. Commons is limited to
+picture files, Internet Archive to images and scanned print, AIC to photographed works, and the
+creator strategy no longer follows institutions. Previews a browser cannot load directly fall back
+to `GET /api/references/:ref/preview-proxy`, which passes the source's own preview through the
+SSRF-guarded client without storing it.
+
 ## Embeddings and scaling
 
 `lib/embedding.ts` provides `lexical-hash-v1`: feature-hashed unigrams and bigrams into 384 dimensions.

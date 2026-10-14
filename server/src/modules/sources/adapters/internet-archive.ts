@@ -39,8 +39,8 @@ export const internetArchive: SourceAdapter = {
   missingConfiguration: () => [],
   async search({ query, page, perPage }, { http }) {
     const url = new URL(this.baseUrl);
-    // Prefer visual material and printed matter; exclude pure audio which RADAR cannot preview.
-    url.searchParams.set('q', `(${query}) AND mediatype:(image OR texts OR movies OR software OR collection)`);
+    // Images and scanned print only: video, audio, software and whole collections rarely make a usable reference.
+    url.searchParams.set('q', `(${query}) AND mediatype:(image OR texts)`);
     for (const f of ['identifier', 'title', 'creator', 'date', 'year', 'description', 'mediatype', 'subject', 'licenseurl', 'collection']) {
       url.searchParams.append('fl[]', f);
     }

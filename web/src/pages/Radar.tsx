@@ -4,7 +4,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { api, qs } from '../lib/api';
 import { STATUS_LABEL, type FeedItem, type FeedResponse, type Status } from '../lib/types';
 import { fmtNum } from '../lib/format';
-import { Dialog, Empty, ErrorBox, Loading, PageHead, Seg, StatusBadge, Thumb, errorText, useToast } from '../components/ui';
+import { Dialog, Empty, ErrorBox, Loading, PageHead, Seg, StatusBadge, Thumb, YearInput, errorText, useToast } from '../components/ui';
 import { RejectDialog, useStatusChange } from '../components/StatusActions';
 import { ReportDialog } from '../components/ReportDialog';
 import type { SourceInfo } from '../lib/types';
@@ -218,9 +218,9 @@ export function RadarPage() {
             <fieldset>
               <legend>Period (year)</legend>
               <div className="row tight">
-                <input aria-label="From year" style={{ width: 70 }} inputMode="numeric" placeholder="from" defaultValue={params.periodFrom ?? ''} onBlur={(e) => set({ periodFrom: /^\d{4}$/.test(e.target.value) ? e.target.value : undefined })} />
+                <YearInput label="From year" width={70} placeholder="from" value={params.periodFrom} onChange={(y) => set({ periodFrom: y === undefined ? undefined : String(y) })} />
                 <span>–</span>
-                <input aria-label="To year" style={{ width: 70 }} inputMode="numeric" placeholder="to" defaultValue={params.periodTo ?? ''} onBlur={(e) => set({ periodTo: /^\d{4}$/.test(e.target.value) ? e.target.value : undefined })} />
+                <YearInput label="To year" width={70} placeholder="to" value={params.periodTo} onChange={(y) => set({ periodTo: y === undefined ? undefined : String(y) })} />
               </div>
             </fieldset>
 
@@ -335,7 +335,7 @@ function FeedCard({ item, idx, selected, onSelect, onAct, onReport, detailed = f
   return (
     <article className={`card ${selected ? 'selected' : ''}`} data-idx={idx} onMouseDown={onSelect} aria-label={`${item.refLabel} ${item.title ?? ''}`}>
       <Link to={`/ref/${item.refNumber}`} className="media" style={ratio ? { aspectRatio: ratio } : undefined} tabIndex={-1}>
-        <Thumb src={item.thumbnailUrl ?? item.previewUrl} fallback={item.cachedPreviewUrl} alt={item.title ?? item.refLabel} />
+        <Thumb src={item.thumbnailUrl ?? item.previewUrl} fallback={item.cachedPreviewUrl} refNumber={item.refNumber} alt={item.title ?? item.refLabel} />
         <div className="overlay">
           {item.duplicateCandidates > 0 ? <span className="badge warn" title="Likely duplicate of another reference">DUP?</span> : null}
           {item.mediaType !== 'image' ? <span className="badge">{item.mediaType}</span> : null}

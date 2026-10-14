@@ -59,14 +59,53 @@ export function RefLink({ label, children }: { label: string; children?: ReactNo
 
 /**
  * Images are loaded straight from the source with no referrer. If that fails and RADAR holds a
- * permitted local copy, the copy is shown instead; otherwise a labelled box.
+ * permitted local copy, the copy is shown instead; then RADAR's pass-through; otherwise a labelled box.
  */
-export function Thumb({ src, fallback, alt, className }: { src: string | null; fallback?: string | null; alt: string; className?: string }) {
+export function Thumb({ src, fallback, refNumber, alt, className }: { src: string | null; fallback?: string | null; refNumber?: number; alt: string; className?: string }) {
   const [attempt, setAttempt] = useState(0);
-  const sources = [src, fallback].filter((x): x is string => !!x);
+  // Last resort: RADAR fetches the source's own preview for the browser, without keeping it.
+  const proxy = src && refNumber ? `/api/references/${refNumber}/preview-proxy` : null;
+  const sources = [src, fallback, proxy].filter((x): x is string => !!x);
   const current = sources[attempt];
   if (!current) return <div className={`noimg ${className ?? ''}`}>{sources.length ? 'Image unavailable' : 'No preview'}</div>;
   return <img key={current} src={current} alt={alt} loading="lazy" referrerPolicy="no-referrer" onError={() => setAttempt((a) => a + 1)} className={className} />;
+}
+
+/**
+ * A four-digit year field. It keeps what the person types (a half-typed "19" stays on screen) and
+ * reports a year only once all four digits are there; clearing the field reports undefined.
+ */
+export function YearInput({ value, onChange, label, placeholder, width = 80 }: {
+  value: number | string | undefined | null;
+  onChange: (year: number | undefined) => void;
+  label?: string;
+  placeholder?: string;
+  width?: number;
+}) {
+  const external = value === undefined || value === null || value === '' ? '' : String(value);
+  const [text, setText] = useState(external);
+  useEffect(() => {
+    setText((t) => (/^\d{4}$/.test(t) || t === '' ? external : t));
+  }, [external]);
+  const invalid = text !== '' && !/^\d{4}$/.test(text);
+  return (
+    <input
+      aria-label={label}
+      aria-invalid={invalid || undefined}
+      title={invalid ? 'Type a four-digit year, e.g. 1999' : undefined}
+      inputMode="numeric"
+      maxLength={4}
+      placeholder={placeholder ?? 'e.g. 1999'}
+      style={{ width }}
+      value={text}
+      onChange={(e) => {
+        const t = e.target.value.replace(/\D/g, '').slice(0, 4);
+        setText(t);
+        if (t === '') onChange(undefined);
+        else if (t.length === 4) onChange(Number(t));
+      }}
+    />
+  );
 }
 
 export function Dialog({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode }) {

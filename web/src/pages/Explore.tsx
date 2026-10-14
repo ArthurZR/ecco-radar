@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { fmtDateTime } from '../lib/format';
-import { Empty, ErrorBox, Loading, PageHead, Seg, errorText, useToast } from '../components/ui';
+import { Empty, ErrorBox, Loading, PageHead, Seg, YearInput, errorText, useToast } from '../components/ui';
 
 type Mode = 'familiar' | 'adjacent' | 'experimental';
 interface Options { sources: { id: string; name: string; ready: boolean; notReady: string | null }[]; modes: Record<Mode, string[]>; territories: string[] }
@@ -168,8 +168,8 @@ function NewExploration({ load, onDoneEditing }: { load: Load | null; onDoneEdit
         </fieldset>
         <div className="row">
           <label className="field"><span>Creator</span><input value={p.creator ?? ''} onChange={(e) => setP({ ...p, creator: e.target.value })} style={{ width: 160 }} /></label>
-          <label className="field"><span>From year</span><input inputMode="numeric" style={{ width: 80 }} value={p.periodFrom ?? ''} onChange={(e) => setP({ ...p, periodFrom: /^\d{4}$/.test(e.target.value) ? Number(e.target.value) : undefined })} /></label>
-          <label className="field"><span>To year</span><input inputMode="numeric" style={{ width: 80 }} value={p.periodTo ?? ''} onChange={(e) => setP({ ...p, periodTo: /^\d{4}$/.test(e.target.value) ? Number(e.target.value) : undefined })} /></label>
+          <label className="field"><span>From year</span><YearInput value={p.periodFrom} onChange={(y) => setP((cur) => ({ ...cur, periodFrom: y }))} /></label>
+          <label className="field"><span>To year</span><YearInput value={p.periodTo} onChange={(y) => setP((cur) => ({ ...cur, periodTo: y }))} /></label>
         </div>
         <div className="row">
           <label className="field"><span>Novelty {p.novelty.toFixed(2)}</span><input type="range" min={0} max={1} step={0.05} value={p.novelty} onChange={(e) => setP({ ...p, novelty: Number(e.target.value) })} /></label>
@@ -352,6 +352,7 @@ function SessionDetail({ id }: { id: string }) {
           {s.results_count > 0 ? <Link to={`/?sessionId=${s.id}&status=discovered,saved,approved_consideration,rejected,archived`}>View results in RADAR →</Link> : null}
         </div>
         {s.error_summary ? <div className="notice danger small">{s.error_summary}</div> : null}
+        <SetAsideNote counts={s.set_aside as Record<string, number> | undefined} />
         {q.data.queries.length === 0 ? <p className="small muted">{ACTIVE.includes(s.status) ? 'Waiting for the worker…' : 'No queries were run.'}</p> : (
           <ul className="qtree">{children(null).map((n) => <Node key={n.id} n={n} />)}</ul>
         )}
@@ -410,5 +411,24 @@ function Schedules({ onEdit }: { onEdit: (s: Schedule) => void }) {
         ))}
       </div>
     </section>
+  );
+}
+
+const SET_ASIDE_LABELS: Record<string, string> = {
+  no_preview: 'had no image',
+  not_visual: 'were video, audio or software',
+  administrative: 'were government or institutional records',
+  off_topic: 'did not mention enough of the search words',
+};
+
+/** What the run filtered out before the feed, so a thin result list is explained rather than hidden. */
+function SetAsideNote({ counts }: { counts?: Record<string, number> | null }) {
+  const parts = Object.entries(counts ?? {}).filter(([, n]) => n > 0);
+  if (!parts.length) return null;
+  const total = parts.reduce((a, [, n]) => a + n, 0);
+  return (
+    <p className="small muted">
+      {total} result{total === 1 ? '' : 's'} set aside before the feed: {parts.map(([k, n]) => `${n} ${SET_ASIDE_LABELS[k] ?? k}`).join(', ')}.
+    </p>
   );
 }

@@ -45,3 +45,11 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+  docker:
+    # Builds the production image and runs it with Postgres, as docs/README "Deploying" describes.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build, start and smoke-test the Docker deployment
+        run: bash scripts/docker-smoke.sh

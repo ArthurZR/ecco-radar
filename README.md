@@ -88,16 +88,23 @@ The simplest path is one small VM (or any Docker host) with HTTPS in front:
 
 ```bash
 cp .env.example .env     # set SESSION_SECRET, APP_ORIGIN=https://radar.your-domain, POSTGRES_PASSWORD, keys
-docker compose up -d --build
-docker compose exec app node dist/db/migrate-cli.js
+docker compose up -d --build --wait
 docker compose exec app node dist/auth/create-user-cli.js you@example.com "Your name"
 ```
+
+The app applies database migrations itself when it starts, after Postgres reports healthy
+(`docker compose exec app node dist/db/migrate-cli.js` does the same by hand). Both containers have
+health checks; `GET /api/health` answers 200 only while the database responds. The app keeps running
+through a Postgres restart and reconnects on the next request.
 
 The app listens on `127.0.0.1:8787`; put Caddy or nginx in front for TLS
 (`reverse_proxy 127.0.0.1:8787` in Caddy is enough). In production the session cookie is `Secure`, so
 the site must be served over HTTPS, and `APP_ORIGIN` must match the public URL exactly because
-state-changing requests from any other origin are refused. The Dockerfile and compose file have not
-been run in the environment this was built in; treat them as a starting point and check the first build.
+state-changing requests from any other origin are refused.
+
+`scripts/docker-smoke.sh` builds the image, starts it with Postgres in a throwaway compose project,
+and checks health, the web app, sign-in, the image-analysis library and a database restart. CI runs
+it on every pull request. It uses its own env file (via `RADAR_ENV_FILE`) and never touches `.env`.
 
 The app needs outbound HTTPS to the source APIs you enable (see `docs/SOURCES.md`) and to
 `api.anthropic.com` if AI is used.
@@ -111,9 +118,17 @@ pg_dump --format=custom --file=radar-$(date +%F).dump "$DATABASE_URL"
 pg_restore --clean --if-exists --dbname="$DATABASE_URL" radar-YYYY-MM-DD.dump
 ```
 
-With Docker: `docker compose exec db pg_dump -U radar -Fc radar > radar-$(date +%F).dump`.
-Keep copies off the server. Reference IDs come from a database sequence, so restoring a backup keeps
-every `#00001`-style ID and never reissues one.
+With Docker:
+
+```bash
+docker compose exec -T db pg_dump -U radar -Fc radar > radar-$(date +%F).dump
+docker compose exec -T db pg_restore -U radar --clean --if-exists -d radar < radar-YYYY-MM-DD.dump
+```
+
+Keep copies off the server. Reference IDs come from a database sequence that is part of the backup,
+so a restore keeps every `#00001`-style ID it contains and continues numbering after them. References
+created after that backup are lost with the restore, and their numbers can then be issued again for
+new references, which is one more reason to back up daily and before every upgrade.
 
 ## Known limitations
 

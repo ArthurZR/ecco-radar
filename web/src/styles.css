@@ -318,3 +318,8 @@ dl.kv dd { margin: 0; overflow-wrap: anywhere; }
 ul.plain { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
 ul.plain a { overflow-wrap: anywhere; }
 .credit-line { border: 1px solid var(--rule); padding: 6px 8px; background: var(--panel); color: var(--ink); font-size: 13px; text-transform: none; letter-spacing: 0; font-family: var(--sans); }
+
+.detected-text { margin-top: 12px; border-top: 1px solid var(--rule); padding-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.detected-text p { margin: 0; }
+.ocr-text { margin: 0; padding: 6px 8px; border: 1px solid var(--rule); background: var(--panel); font: 12px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
+.ocr-text.rejected { text-decoration: line-through; color: var(--ink-2); }

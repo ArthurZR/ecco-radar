@@ -88,7 +88,9 @@ function buildWhere(q: FeedQuery): { sql: string; params: unknown[] } {
     const refNo = parseRefNumber(q.q);
     if (refNo !== null && /^#|^\d+$/.test(q.q.trim())) where.push(`r.ref_number = ${p(refNo)}`);
     else where.push(`(r.search_tsv @@ websearch_to_tsquery('english', ${p(q.q)}) OR r.search_tsv @@ websearch_to_tsquery('simple', $${params.length})
-      OR EXISTS (SELECT 1 FROM reference_tags t WHERE t.reference_id = r.id AND lower(t.tag) = lower($${params.length})))`);
+      OR EXISTS (SELECT 1 FROM reference_tags t WHERE t.reference_id = r.id AND lower(t.tag) = lower($${params.length}))
+      OR EXISTS (SELECT 1 FROM reference_detected_text d WHERE d.reference_id = r.id AND d.review_state <> 'rejected'
+                   AND to_tsvector('simple', coalesce(d.corrected_text, d.text, '')) @@ websearch_to_tsquery('simple', $${params.length})))`);
   }
   return { sql: where.length ? `WHERE ${where.join(' AND ')}` : '', params };
 }

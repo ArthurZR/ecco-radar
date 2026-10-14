@@ -40,7 +40,19 @@ const { ingestReference } = await import('../src/modules/references/ingest.js');
 const refuse = async (url: string): Promise<never> => {
   throw Object.assign(new Error(`outbound request blocked in end-to-end tests: ${new URL(url).hostname}`), { code: 'ENOTFOUND' });
 };
-setHttpClient({ getText: refuse, getBytes: refuse, getJson: refuse });
+// One SYNTHETIC image with lettering, served by this server itself, so text detection can run for
+// real without any outside request.
+const sharp = (await import('sharp')).default;
+const FIXTURE_PATH = '/e2e-fixtures/lettering.png';
+const FIXTURE_URL = `http://localhost:${port}${FIXTURE_PATH}`;
+const lettering = await sharp(Buffer.from(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="220"><rect width="100%" height="100%" fill="#e8eef7"/>
+   <text x="40" y="135" font-family="sans-serif" font-weight="bold" font-size="72" fill="#13233d">DESKTOP THEME 2001</text></svg>`,
+)).png().toBuffer();
+setHttpClient({
+  getText: refuse, getJson: refuse,
+  getBytes: async (url: string) => (url === FIXTURE_URL ? { status: 200, url, contentType: 'image/png', body: lettering } : refuse(url)),
+});
 
 await migrate(db());
 const { rows } = await db().query<{ tablename: string }>(`SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'schema_migrations'`);
@@ -52,7 +64,7 @@ await db().query(`INSERT INTO users(email, display_name, password_hash) VALUES (
 
 const seeds = [
   { title: 'SYNTHETIC Aqua button study', creatorName: 'Test Designer A', publishedRaw: '2003', tags: ['interface', 'y2k'] },
-  { title: 'SYNTHETIC Desktop theme screenshot', creatorName: 'Test Designer B', publishedRaw: '2001', tags: ['interface', 'operating system'] },
+  { title: 'SYNTHETIC Desktop theme screenshot', creatorName: 'Test Designer B', publishedRaw: '2001', tags: ['interface', 'operating system'], previewUrl: FIXTURE_URL },
   { title: 'SYNTHETIC Game magazine advert', publishedRaw: '1999', tags: ['video games', 'print'] },
   { title: 'SYNTHETIC Personal homepage banner', creatorName: 'Test Designer C', publishedRaw: '2004', tags: ['web', 'y2k'] },
   { title: 'SYNTHETIC Album sleeve detail', creatorName: 'Test Designer D', publishedRaw: '2002', tags: ['music', 'typography'] },
@@ -68,4 +80,5 @@ for (const [i, s] of seeds.entries()) {
 }
 
 const app = await buildApp();
+app.get(FIXTURE_PATH, { config: { public: true } }, async (_req, reply) => reply.type('image/png').send(lettering));
 await app.listen({ port, host: '127.0.0.1' });

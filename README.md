@@ -174,6 +174,11 @@ new references, which is one more reason to back up daily and before every upgra
   model would plug in.
 - **No pgvector.** Embeddings are stored as arrays and compared in the application. That is fine for
   tens of thousands of references; see `docs/ARCHITECTURE.md` for the scaling path.
+- **Text in images is OCR, and English only.** Tesseract (bundled with the `tesseract.js` npm
+  packages, run on the server, nothing sent out) reads each reference's preview. Only words read
+  with confidence ≥ 75 are kept, and stylised, curved or pixel type is often missed or misread, so
+  every reading is a suggestion: it becomes searchable at once, but Caption Studio uses it as a fact
+  only after you confirm or correct it on the reference page. Turn it off in Settings.
 - **Instagram is not a source.** Its API does not allow searching other accounts, and scraping is not
   permitted. Instagram data only enters through your own exported analytics.
 - **Images are hot-linked** from their sources with no referrer; RADAR does not store copies.

@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import { STATUS_LABEL, type Status } from '../lib/types';
 import { fmtDate, fmtDateTime, fmtNum, hostOf } from '../lib/format';
 import { Dialog, Empty, ErrorBox, HBar, Loading, PageHead, StatusBadge, Thumb, errorText, useToast } from '../components/ui';
+import { DetectedTextPanel, type DetectedText } from '../components/DetectedText';
 import { PublishedDialog, RejectDialog, useStatusChange } from '../components/StatusActions';
 
 type VisualState =
@@ -28,6 +29,7 @@ interface Detail {
     durationSeconds: number | null; license: string | null; rightsStatement: string | null; verificationStatus: string; attributionStatus: string; status: Status;
     statusMeta: { label: string; meaning: string }; deletedAt: string | null; embeddingModel: string | null; visualAnalysis: VisualState;
   };
+  detectedText: DetectedText | null;
   tags: { tag: string; origin: string; state: string; confidence: number | null }[];
   entities: { entity_id: string; label: string; kind: string; wikidata_id: string | null; external_url: string | null; predicate: string; evidence: string; confidence: number | null; provenance: string; provenance_url: string | null }[];
   duplicates: { kind: string; method: string; score: number | null; evidence: string; other: Mini | null }[];
@@ -140,6 +142,7 @@ export function ReferencePage() {
                 <button className="sm" disabled={call.isPending} onClick={() => call.mutate({ path: 'visual' })}>{r.visualAnalysis.state === 'failed' ? 'Try again' : 'Analyse now'}</button>
               ) : null}
             </div>
+            <DetectedTextPanel refNumber={r.refNumber} refKey={['ref', label]} d={d.detectedText} hasImage={!!(r.previewUrl ?? r.thumbnailUrl)} />
           </div>
 
           <div className="stack lg">

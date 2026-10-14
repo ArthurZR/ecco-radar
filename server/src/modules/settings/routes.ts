@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { db } from '../../db/pool.js';
 import { env } from '../../config/env.js';
 import { resetVisualAnalysis, visualAnalysisStatus } from '../references/visual.js';
+import { textDetectionStatus } from '../references/detected-text.js';
 import { aiBudget } from '../../ai/provider.js';
 
 const SETTINGS = {
@@ -11,6 +12,10 @@ const SETTINGS = {
   visual_analysis_enabled: {
     default: true,
     description: 'Download each reference’s preview image once (from its source, read-only) to compute a local colour/tone vector and perceptual hash. Nothing is sent to any third party.',
+  },
+  text_detection_enabled: {
+    default: true,
+    description: 'Read text visible in each reference’s image with local OCR (Tesseract, English). Results are suggestions you confirm or correct. Nothing is sent to any third party.',
   },
 } as const;
 type Key = keyof typeof SETTINGS;
@@ -27,6 +32,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       settings: Object.fromEntries(Object.entries(SETTINGS).map(([k, s]) => [k, { value: rows.find((r) => r.key === k)?.value ?? s.default, description: s.description }])),
       ai: { configured: !!env().ANTHROPIC_API_KEY, provider: env().ANTHROPIC_API_KEY ? 'anthropic' : null, model: env().ANTHROPIC_API_KEY ? env().ANTHROPIC_MODEL : null, usageLast30Days: usage, budget: await aiBudget() },
       visual: await visualAnalysisStatus(),
+      textDetection: await textDetectionStatus(),
       publishing: 'eccö RADAR has no publishing integrations. Approval and "manually published" are records only.',
     };
   });

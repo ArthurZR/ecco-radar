@@ -38,7 +38,7 @@ npm run build
 npm run e2e         # browser tests; needs the build above and a Chromium (`npx playwright install chromium`)
 ```
 
-`npm run e2e` starts the API with the built web app on port 8790 against the test database, seeds five
+`npm run e2e` starts the API with the built web app on port 8790 against the test database, seeds eight
 SYNTHETIC references and blocks all outbound HTTP. The browser tests sign in, triage the feed with the
 keyboard, write a note, take a caption through to "manually published", import and roll back a
 synthetic X file, and change the AI limit. Every test also fails if the browser contacts any origin

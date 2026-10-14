@@ -96,6 +96,23 @@ model: install pgvector, add a `vector` column, implement `EmbeddingProvider` fo
 via the `embed_reference` job, and replace the in-app cosine scans with an indexed nearest-neighbour
 query. Visual similarity should get its own provider and column so it stays separate from text.
 
+## Groups (clustering)
+
+`lib/kmeans.ts` is a deterministic spherical k-means (cosine, k-means++ seeding with a fixed seed).
+`references/clusters.ts` groups the newest 2,000 live references (rejected and deleted ones excluded)
+into about sqrt(n/2) groups (2 to 12), either by text vector or by colour/tone vector, never a mix of
+the two. Each group is described only by data: tags carried by at least 40% of its members, its
+status mix, and how tight it is (mean cosine to the centre). Archive → Groups shows them. Groups are
+recomputed on request and change no score or record.
+
+## Performance context on a reference
+
+`insights/reference-performance.ts` shows, on the reference page: the imported post whose link
+matches a publication the editor recorded for that reference (with its latest metrics), up to five
+imported Instagram posts whose captions share wording with the reference (lexical similarity ≥ 0.3,
+labelled as wording, not image), and the archive-wide median engagement per reach for context. X daily
+account totals are never used because they cannot be tied to a post. None of this feeds the score.
+
 ## Visual analysis
 
 `lib/visual.ts` uses sharp to compute two things from a preview image: a 64-bit difference hash

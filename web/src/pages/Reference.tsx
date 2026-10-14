@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { STATUS_LABEL, type Status } from '../lib/types';
-import { fmtDateTime, hostOf } from '../lib/format';
+import { fmtDate, fmtDateTime, fmtNum, hostOf } from '../lib/format';
 import { Dialog, Empty, ErrorBox, HBar, Loading, PageHead, StatusBadge, Thumb, errorText, useToast } from '../components/ui';
 import { PublishedDialog, RejectDialog, useStatusChange } from '../components/StatusActions';
 
@@ -245,6 +245,8 @@ export function ReferencePage() {
               ) : null}
             </Panel>
 
+            <PerformancePanel refNumber={r.refNumber} />
+
             <Panel title="History">
               {d.decisions.length === 0 ? <p className="small muted">No decisions yet.</p> : (
                 <ul className="timeline">
@@ -383,6 +385,73 @@ function RelatedGroup({ title, list, note }: { title: string; list: Mini[]; note
         </div>
       ) : <p className="small muted">None found.</p>}
     </div>
+  );
+}
+
+interface PostSummary {
+  platform: string; account: string; permalink: string | null; publishedAt: string | null; format: string | null;
+  captionExcerpt: string | null; metrics: Record<string, number>; engagementPerReach: number | null; similarity?: number;
+}
+interface Performance {
+  published: PostSummary[];
+  unmatchedReports: { platform: string | null; permalink: string | null; publishedOn: string | null }[];
+  similarCaptions: PostSummary[];
+  baseline: { n: number; median: number | null; p25: number | null; p75: number | null } | null;
+  notes: string[];
+}
+
+const pct = (v: number | null) => (v === null ? '—' : `${(v * 100).toFixed(1)}%`);
+const METRIC_ORDER = ['reach', 'views', 'impressions', 'likes', 'comments', 'shares', 'saves', 'follows'];
+
+function PostRow({ p }: { p: PostSummary }) {
+  const metrics = METRIC_ORDER.filter((m) => p.metrics[m] !== undefined);
+  return (
+    <div className="post-row">
+      <div className="small">
+        {p.permalink ? <a href={p.permalink} target="_blank" rel="noopener noreferrer">{p.platform} @{p.account}</a> : `${p.platform} @${p.account}`}
+        {' · '}{p.publishedAt ? fmtDate(p.publishedAt) : 'date unknown'}{p.format ? ` · ${p.format}` : ''}
+        {p.similarity !== undefined ? <span className="muted"> · wording similarity {p.similarity.toFixed(2)}</span> : null}
+      </div>
+      {p.captionExcerpt ? <div className="small muted">{p.captionExcerpt}</div> : null}
+      <div className="small mono">
+        {metrics.length ? metrics.map((m) => `${m} ${fmtNum(p.metrics[m]!)}`).join(' · ') : 'no metrics in the export'}
+        {' · '}engagement/reach {pct(p.engagementPerReach)}
+      </div>
+    </div>
+  );
+}
+
+function PerformancePanel({ refNumber }: { refNumber: number }) {
+  const q = useQuery({ queryKey: ['ref-performance', refNumber], queryFn: () => api.get<Performance>(`/api/references/${refNumber}/performance`) });
+  const d = q.data;
+  return (
+    <Panel title="Performance context" right={<span className="badge">descriptive</span>}>
+      {q.isLoading ? <Loading /> : null}
+      <ErrorBox error={q.error} />
+      {d ? (
+        <div className="stack">
+          {d.published.length ? (
+            <div><h3>Your recorded post of this reference</h3>{d.published.map((p, i) => <PostRow key={i} p={p} />)}</div>
+          ) : null}
+          {d.unmatchedReports.length ? (
+            <p className="small muted" style={{ margin: 0 }}>
+              {d.unmatchedReports.length} recorded publication(s) have no matching imported post
+              {d.unmatchedReports.some((u) => !u.permalink) ? ' (some have no link)' : ''}. Import the export that contains them to see metrics.
+            </p>
+          ) : null}
+          {d.similarCaptions.length ? (
+            <div><h3>Imported posts with similar wording</h3>{d.similarCaptions.map((p, i) => <PostRow key={i} p={p} />)}</div>
+          ) : null}
+          {d.baseline ? (
+            <p className="small" style={{ margin: 0 }}>
+              Across {fmtNum(d.baseline.n)} imported Instagram posts, engagement per reach has a median of {pct(d.baseline.median)} (middle half {pct(d.baseline.p25)} to {pct(d.baseline.p75)}).
+              Engagement is likes + comments + shares + saves, where present.
+            </p>
+          ) : null}
+          {d.notes.map((n) => <p key={n} className="small muted" style={{ margin: 0 }}>{n}</p>)}
+        </div>
+      ) : null}
+    </Panel>
   );
 }
 

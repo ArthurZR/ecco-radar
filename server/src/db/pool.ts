@@ -10,7 +10,14 @@ pg.types.setTypeParser(1082, (v) => v);
 let pool: pg.Pool | undefined;
 
 export function db(): pg.Pool {
-  pool ??= new pg.Pool({ connectionString: env().DATABASE_URL, max: 10 });
+  if (!pool) {
+    pool = new pg.Pool({ connectionString: env().DATABASE_URL, max: 10 });
+    // An idle connection dropped by the server (Postgres restart, failover) emits 'error' on the pool.
+    // Without a listener Node treats it as unhandled and exits; the pool replaces the client instead.
+    pool.on('error', (err) => {
+      console.error(`database connection lost (${(err as { code?: string }).code ?? err.message}); it will be re-established on the next query`);
+    });
+  }
   return pool;
 }
 

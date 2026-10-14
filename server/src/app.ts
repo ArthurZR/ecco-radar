@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { ZodError } from 'zod';
 import { env } from './config/env.js';
+import { db } from './db/pool.js';
 import { AppError } from './lib/errors.js';
 import { SESSION_COOKIE, resolveSession } from './auth/sessions.js';
 import { authRoutes } from './auth/routes.js';
@@ -88,7 +89,15 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
     return reply.status(500).send({ error: 'internal_error', message: 'Something went wrong on the server' });
   });
 
-  app.get('/api/health', { config: { public: true } }, async () => ({ ok: true }));
+  // Public liveness check for container health probes: confirms the database answers, reveals nothing else.
+  app.get('/api/health', { config: { public: true } }, async (_req, reply) => {
+    try {
+      await db().query('SELECT 1');
+      return { ok: true };
+    } catch {
+      return reply.status(503).send({ ok: false });
+    }
+  });
 
   await app.register(authRoutes);
   await app.register(referenceRoutes);

@@ -17,7 +17,8 @@ interface Prefs {
   resets: { id: string; reset_at: string; note: string | null; undone_at: string | null }[];
 }
 interface Settings {
-  settings: Record<'external_ai_enabled' | 'background_paused', { value: boolean; description: string }>;
+  settings: Record<'external_ai_enabled' | 'background_paused' | 'visual_analysis_enabled', { value: boolean; description: string }>;
+  visual: { analysed: number; failed: number; pending: number; no_preview: number; model: string; hashModel: string };
   ai: { configured: boolean; provider: string | null; model: string | null; usageLast30Days: { provider: string; model: string; purpose: string; calls: number; succeeded: number; input_tokens: number; output_tokens: number }[] };
   publishing: string;
 }
@@ -47,6 +48,11 @@ function General() {
   const set = useMutation({
     mutationFn: ({ key, value }: { key: string; value: boolean }) => api.put(`/api/settings/${key}`, { value }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+    onError: (e) => toast({ text: errorText(e), error: true }),
+  });
+  const retry = useMutation({
+    mutationFn: () => api.post<{ reset: number }>('/api/visual/reset', { onlyFailed: true }),
+    onSuccess: (r) => { qc.invalidateQueries({ queryKey: ['settings'] }); toast({ text: `${r.reset} image(s) will be analysed again` }); },
     onError: (e) => toast({ text: errorText(e), error: true }),
   });
   if (q.isLoading) return <Loading />;
@@ -79,6 +85,18 @@ function General() {
               Pause all background schedules
             </label>
             <p className="small muted">Nothing runs in the background unless you create and switch on a schedule in Explore.</p>
+          </div>
+        </section>
+        <section className="panel">
+          <header><h2>Image analysis</h2><span className="badge">{s.visual.model}</span></header>
+          <div className="body stack">
+            <label className="check">
+              <input type="checkbox" checked={s.settings.visual_analysis_enabled.value} onChange={(e) => set.mutate({ key: 'visual_analysis_enabled', value: e.target.checked })} />
+              Analyse preview images
+            </label>
+            <p className="small muted">{s.settings.visual_analysis_enabled.description} It measures colour, tone and layout structure only; it does not recognise subjects or style.</p>
+            <p className="small">{s.visual.analysed} analysed · {s.visual.pending} waiting · {s.visual.failed} failed · {s.visual.no_preview} without a preview</p>
+            {s.visual.failed ? <div><button className="sm" disabled={retry.isPending} onClick={() => retry.mutate()}>Retry failed images</button></div> : null}
           </div>
         </section>
         <section className="panel">
@@ -129,7 +147,7 @@ function RankingEditor() {
                 const max = c.key === 'audience_resonance' ? 1.5 : 5;
                 return (
                   <tr key={c.key}>
-                    <td>{c.label}{c.key === 'audience_resonance' ? <div className="small muted">Capped at 1.5 so engagement never outweighs editorial judgement.</div> : null}{c.key === 'visual_affinity' ? <div className="small muted">No visual model is configured, so this is currently empty for every item.</div> : null}</td>
+                    <td>{c.label}{c.key === 'audience_resonance' ? <div className="small muted">Capped at 1.5 so engagement never outweighs editorial judgement.</div> : null}{c.key === 'visual_affinity' ? <div className="small muted">Colour and tone only. Empty until at least 3 approved references have analysed images.</div> : null}</td>
                     <td style={{ width: 160 }}><input type="range" min={0} max={max} step={0.1} value={weights[c.key] ?? 0} onChange={(e) => setWeights({ ...weights, [c.key]: Number(e.target.value) })} aria-label={c.label} style={{ width: '100%' }} /></td>
                     <td className="num" style={{ width: 50 }}>{(weights[c.key] ?? 0).toFixed(1)}</td>
                     <td style={{ width: 80 }}><HBar value={(weights[c.key] ?? 0) / total} max={0.5} /></td>

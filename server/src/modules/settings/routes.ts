@@ -2,10 +2,15 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { db } from '../../db/pool.js';
 import { env } from '../../config/env.js';
+import { resetVisualAnalysis, visualAnalysisStatus } from '../references/visual.js';
 
 const SETTINGS = {
   external_ai_enabled: { default: false, description: 'Allow sending reference metadata (never analytics files) to the configured AI provider for caption drafts and query expansion.' },
   background_paused: { default: false, description: 'Pause all scheduled background discovery.' },
+  visual_analysis_enabled: {
+    default: true,
+    description: 'Download each reference’s preview image once (from its source, read-only) to compute a local colour/tone vector and perceptual hash. Nothing is sent to any third party.',
+  },
 } as const;
 type Key = keyof typeof SETTINGS;
 
@@ -20,6 +25,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     return {
       settings: Object.fromEntries(Object.entries(SETTINGS).map(([k, s]) => [k, { value: rows.find((r) => r.key === k)?.value ?? s.default, description: s.description }])),
       ai: { configured: !!env().ANTHROPIC_API_KEY, provider: env().ANTHROPIC_API_KEY ? 'anthropic' : null, model: env().ANTHROPIC_API_KEY ? env().ANTHROPIC_MODEL : null, usageLast30Days: usage },
+      visual: await visualAnalysisStatus(),
       publishing: 'eccö RADAR has no publishing integrations. Approval and "manually published" are records only.',
     };
   });
@@ -33,5 +39,10 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     );
     await db().query(`INSERT INTO audit_events(actor_id, action, entity_type, entity_id, data) VALUES ($1,'setting_changed','setting',$2,$3)`, [req.user!.id, key, JSON.stringify({ value })]);
     return { ok: true };
+  });
+
+  app.post('/api/visual/reset', async (req) => {
+    const { onlyFailed } = z.object({ onlyFailed: z.boolean().default(true) }).parse(req.body ?? {});
+    return { reset: await resetVisualAnalysis(onlyFailed) };
   });
 }

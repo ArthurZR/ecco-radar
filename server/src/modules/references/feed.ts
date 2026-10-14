@@ -104,7 +104,7 @@ export function toScorable(r: Row): ScorableReference {
   return {
     id: r.id, source_id: r.source_id, creator_name: r.creator_name, creator_url: r.creator_url, title: r.title,
     description: r.description, published_date: r.published_date, license: r.license, rights_statement: r.rights_statement,
-    preview_url: r.preview_url, attribution_status: r.attribution_status, text_embedding: r.text_embedding,
+    preview_url: r.preview_url, attribution_status: r.attribution_status, text_embedding: r.text_embedding, visual_embedding: r.visual_embedding,
     tags: r.tags, entity_ids: r.entity_ids,
   };
 }

@@ -63,8 +63,9 @@ web (React SPA) ──/api──▶ server (Fastify) ──▶ PostgreSQL
 `ranking/score.ts` computes named components, each with a value in [0, 1] (or `null` when it cannot be
 computed) and a note explaining it:
 
-editorial affinity, cultural relevance, query relevance, visual affinity (always `null`: no visual
-model), novelty, research potential, source reliability, audience resonance.
+editorial affinity, cultural relevance, query relevance, visual affinity (colour/tone similarity to
+approved references; `null` until 3 approved references have analysed images), novelty, research
+potential, source reliability, audience resonance.
 
 The total is a weighted mean of the available components minus penalties (already published by eccö,
 reported misattribution, inaccessible, no traceable connection in experimental mode). Familiar,
@@ -94,6 +95,17 @@ feed, 3,000 for related items), which is fast for a single editor's archive. To 
 model: install pgvector, add a `vector` column, implement `EmbeddingProvider` for the model, backfill
 via the `embed_reference` job, and replace the in-app cosine scans with an indexed nearest-neighbour
 query. Visual similarity should get its own provider and column so it stays separate from text.
+
+## Visual analysis
+
+`lib/visual.ts` uses sharp to compute two things from a preview image: a 64-bit difference hash
+(`dhash-64`, for near-identical copies) and a 76-dimension colour/tone vector (`colour-tone-v1`: RGB,
+luminance and saturation histograms, square-root normalised). The worker queues every reference
+with a preview that has not been analysed (`embed_reference` jobs, swept once a minute); the image is
+fetched once through the same GET-only, SSRF-guarded client with an 8 MB cap and a 50-megapixel
+decode limit. Results live in `visual_hash` and `visual_embedding`, apart from the text embedding.
+Failures are stored in `visual_error` and shown on the reference; they are retried only when the
+editor asks. The whole step can be switched off in Settings.
 
 ## AI
 

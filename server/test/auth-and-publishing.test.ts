@@ -95,7 +95,7 @@ describe('no automatic publishing', () => {
 
   it('the outbound HTTP client used by sources is read-only (GET only)', () => {
     const client = createHttpClient('test');
-    expect(Object.keys(client).sort()).toEqual(['getJson', 'getText']);
+    expect(Object.keys(client).sort()).toEqual(['getBytes', 'getJson', 'getText']);
     const src = readFileSync(path.join(__dirname, '../src/lib/http-client.ts'), 'utf8');
     expect(src.match(/method:\s*'([A-Z]+)'/g)).toEqual(["method: 'GET'"]);
   });

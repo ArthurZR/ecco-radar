@@ -87,6 +87,9 @@ export interface ReferenceRow {
   duplicate_group_id: string | null;
   text_embedding: number[] | null;
   visual_hash: string | null;
+  visual_embedding: number[] | null;
+  visual_analyzed_at: string | null;
+  visual_error: string | null;
   deleted_at: string | null;
   updated_at: string;
   tags?: string[];

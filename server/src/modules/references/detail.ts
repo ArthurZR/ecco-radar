@@ -3,8 +3,7 @@ import { cosine } from '../../lib/embedding.js';
 import { notFound } from '../../lib/errors.js';
 import { getActiveRankingConfig } from '../ranking/config.js';
 import { getEditorialProfile } from '../ranking/profile.js';
-import { scoreReference } from '../ranking/score.js';
-import { hammingHex } from './duplicates.js';
+import { scoreReference, visualScale } from '../ranking/score.js';
 import { loadRow, toScorable } from './feed.js';
 import { STATUS_META } from './status.js';
 import { formatRefNumber } from './types.js';
@@ -66,8 +65,8 @@ export async function getReferenceDetail(refNumber: number) {
     db().query('SELECT id, version, origin, length_setting, purpose, created_at, left(body, 200) AS preview FROM caption_drafts WHERE reference_id = $1 ORDER BY version DESC', [id]),
     db().query('SELECT body, based_on_draft_id, updated_at FROM final_captions WHERE reference_id = $1', [id]),
     db().query('SELECT platform, permalink, published_on, verification, created_at FROM publication_reports WHERE reference_id = $1 ORDER BY created_at DESC', [id]),
-    db().query<{ id: string; text_embedding: number[] | null; visual_hash: string | null; creator_name: string | null; status: string }>(
-      `SELECT id, text_embedding, visual_hash, creator_name, status FROM reference_items
+    db().query<{ id: string; text_embedding: number[] | null; visual_embedding: number[] | null; creator_name: string | null; status: string }>(
+      `SELECT id, text_embedding, visual_embedding, creator_name, status FROM reference_items
         WHERE id <> $1 AND deleted_at IS NULL ORDER BY discovered_at DESC LIMIT 3000`,
       [id],
     ),
@@ -79,11 +78,12 @@ export async function getReferenceDetail(refNumber: number) {
     .filter((x) => x.score > 0.15)
     .sort((a, b) => b.score - a.score)
     .slice(0, 8);
-  const visual = row.visual_hash
+  // Visual: colour/tone vectors only. Near-identical images are handled as duplicate candidates.
+  const visual = row.visual_embedding
     ? candidates.rows
-        .filter((c) => c.visual_hash)
-        .map((c) => ({ id: c.id, score: 1 - hammingHex(row.visual_hash!, c.visual_hash!) / 64 }))
-        .filter((x) => x.score >= 0.8)
+        .filter((c) => c.visual_embedding)
+        .map((c) => ({ id: c.id, score: visualScale(cosine(row.visual_embedding, c.visual_embedding)) }))
+        .filter((x) => x.score >= 0.6)
         .sort((a, b) => b.score - a.score)
         .slice(0, 8)
     : null;
@@ -138,7 +138,11 @@ export async function getReferenceDetail(refNumber: number) {
       duplicateGroupId: row.duplicate_group_id,
       deletedAt: row.deleted_at,
       embeddingModel: row.text_embedding ? 'lexical-hash-v1' : null,
-      visualAnalysis: row.visual_hash ? 'perceptual hash computed' : 'not performed',
+      visualAnalysis: row.visual_embedding
+        ? { state: 'analysed', at: row.visual_analyzed_at, model: 'colour-tone-v1 + dhash-64', note: 'Colour, tone and layout structure only. Subjects and style are not recognised.' }
+        : row.visual_error
+          ? { state: 'failed', at: row.visual_analyzed_at, error: row.visual_error }
+          : { state: row.thumbnail_url || row.preview_url ? 'pending' : 'no_preview' },
     },
     tags: tags.rows,
     entities: entities.rows,

@@ -7,6 +7,18 @@ import { fmtDateTime, hostOf } from '../lib/format';
 import { Dialog, Empty, ErrorBox, HBar, Loading, PageHead, StatusBadge, Thumb, errorText, useToast } from '../components/ui';
 import { PublishedDialog, RejectDialog, useStatusChange } from '../components/StatusActions';
 
+type VisualState =
+  | { state: 'analysed'; at: string; model: string; note: string }
+  | { state: 'failed'; at: string; error: string }
+  | { state: 'pending' | 'no_preview' };
+
+const VISUAL_TEXT: Record<VisualState['state'], string> = {
+  analysed: 'Image analysed',
+  failed: 'Image analysis failed',
+  pending: 'Image not analysed yet',
+  no_preview: 'No preview image to analyse',
+};
+
 interface Mini { id: string; refLabel: string; title: string | null; creatorName: string | null; thumbnailUrl: string | null; previewUrl: string | null; status: Status; score: number }
 interface Detail {
   reference: {
@@ -14,7 +26,7 @@ interface Detail {
     creatorName: string | null; creatorUrl: string | null; title: string | null; description: string | null; publishedRaw: string | null; publishedDate: string | null;
     publishedPrecision: string; discoveredAt: string; previewUrl: string | null; thumbnailUrl: string | null; mediaType: string; width: number | null; height: number | null;
     durationSeconds: number | null; license: string | null; rightsStatement: string | null; verificationStatus: string; attributionStatus: string; status: Status;
-    statusMeta: { label: string; meaning: string }; deletedAt: string | null; embeddingModel: string | null; visualAnalysis: string;
+    statusMeta: { label: string; meaning: string }; deletedAt: string | null; embeddingModel: string | null; visualAnalysis: VisualState;
   };
   tags: { tag: string; origin: string; state: string; confidence: number | null }[];
   entities: { entity_id: string; label: string; kind: string; wikidata_id: string | null; external_url: string | null; predicate: string; evidence: string; confidence: number | null; provenance: string; provenance_url: string | null }[];
@@ -117,9 +129,17 @@ export function ReferencePage() {
                 <div className="noimg" style={{ aspectRatio: '4/3', display: 'flex' }}>No preview</div>
               )}
             </div>
-            <p className="small muted" style={{ marginTop: 6 }}>
-              Image shown directly from {hostOf(r.previewUrl ?? r.originalUrl)}. Visual analysis: {r.visualAnalysis}.
-            </p>
+            <div className="small muted" style={{ marginTop: 6 }}>
+              <p>Image shown directly from {hostOf(r.previewUrl ?? r.originalUrl)}.</p>
+              <p>
+                {VISUAL_TEXT[r.visualAnalysis.state]}
+                {r.visualAnalysis.state === 'analysed' ? ` (${r.visualAnalysis.model}, ${fmtDateTime(r.visualAnalysis.at)}). ${r.visualAnalysis.note}` : ''}
+                {r.visualAnalysis.state === 'failed' ? `: ${r.visualAnalysis.error}` : ''}
+              </p>
+              {r.visualAnalysis.state === 'pending' || r.visualAnalysis.state === 'failed' ? (
+                <button className="sm" disabled={call.isPending} onClick={() => call.mutate({ path: 'visual' })}>{r.visualAnalysis.state === 'failed' ? 'Try again' : 'Analyse now'}</button>
+              ) : null}
+            </div>
           </div>
 
           <div className="stack lg">
@@ -204,7 +224,7 @@ export function ReferencePage() {
 
             <Panel title="Related references">
               <RelatedGroup title="Semantically similar (text)" list={d.related.semantic} note={r.embeddingModel ? `Model: ${r.embeddingModel}, local lexical similarity of titles, descriptions and tags.` : 'No text embedding.'} />
-              <RelatedGroup title="Visually similar" list={d.related.visual ?? []} note={d.related.visual === null ? 'Not available: this image has not been visually analysed. Visual and text similarity are never mixed.' : 'Perceptual-hash similarity.'} />
+              <RelatedGroup title="Visually similar (colour and tone)" list={d.related.visual ?? []} note={d.related.visual === null ? 'Not available until this image is analysed. Visual and text similarity are never mixed.' : 'Similar colour, tone and contrast (colour-tone-v1). Subjects and style are not recognised. Near-identical copies appear under possible duplicates.'} />
               <RelatedGroup title="Same creator" list={d.related.sameCreator} />
               <RelatedGroup title="Shared cultural entities" list={d.related.sharedEntities} />
             </Panel>

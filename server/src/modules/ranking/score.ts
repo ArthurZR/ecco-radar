@@ -1,4 +1,5 @@
 import { cosine } from '../../lib/embedding.js';
+import { DHASH_MAX_DISTANCE, hammingHex } from '../references/duplicates.js';
 import { COMPONENT_LABELS, type Component, type Weights } from './config.js';
 
 /**
@@ -24,12 +25,16 @@ export interface ScorableReference {
   text_embedding: number[] | null;
   /** colour-tone-v1 vector of the preview image; kept apart from the text embedding */
   visual_embedding?: number[] | null;
+  /** dhash-64 of the preview image */
+  visual_hash?: string | null;
   tags: string[];
   entity_ids: string[];
 }
 
 export interface PostResonance {
-  embedding: number[];
+  embedding: number[] | null;
+  /** colour-tone-v1 vector of the post's cover image, when the editor supplied the post's media */
+  visual?: number[] | null;
   /** percentile rank (0..1) of the post's engagement rate among eccö posts on the same platform */
   percentile: number;
 }
@@ -42,6 +47,11 @@ export interface EditorialProfile {
   approvedVisualCount: number;
   historyCentroid: number[] | null;
   historyCount: number;
+  /** centroid of the colour-tone vectors of eccö's own published post images, and how many there are */
+  historyVisualCentroid?: number[] | null;
+  historyVisualCount?: number;
+  /** perceptual hashes of eccö's published post images, to notice an image that was already posted */
+  publishedImages?: PublishedImage[];
   /** 'tag:…', 'creator:…', 'source:…', 'entity:…' → learned weight in [-1, 1] */
   featureWeights: Map<string, number>;
   /** embeddings of what eccö already holds or published, for novelty and exposure */
@@ -51,6 +61,13 @@ export interface EditorialProfile {
   sourceReliability: Map<string, number>;
   resonance: PostResonance[];
   resonanceBasis: string;
+}
+
+export interface PublishedImage {
+  hash: string;
+  postId: string;
+  permalink: string | null;
+  publishedAt: string | null;
 }
 
 export interface ScoreContext {
@@ -85,6 +102,19 @@ const scaleSim = (s: number) => clamp01(s / SIM_SCALE);
 // Colour/tone cosines are high even for unrelated images (~0.3–0.6); rescale so 0.5→0 and 0.95→1.
 export const visualScale = (s: number) => clamp01((s - 0.5) / 0.45);
 export const MIN_VISUAL_APPROVED = 3;
+/** Published post images needed before eccö's own feed counts as a visual reference point. */
+export const MIN_VISUAL_HISTORY = 10;
+/** Raw colour-tone cosine below which a past post is not considered comparable. */
+const VISUAL_COMPARABLE = 0.75;
+
+/** Published post images that are near-identical (dhash) to this reference's preview. */
+export function alreadyPosted(hash: string | null | undefined, published: PublishedImage[] | undefined): (PublishedImage & { distance: number })[] {
+  if (!hash || !published?.length) return [];
+  return published
+    .map((p) => ({ ...p, distance: hammingHex(hash, p.hash) }))
+    .filter((p) => p.distance <= DHASH_MAX_DISTANCE)
+    .sort((a, b) => a.distance - b.distance);
+}
 
 const MODE_MULTIPLIERS: Record<ExplorationMode, Partial<Record<Component, number>>> = {
   familiar: { editorial_affinity: 1.5, novelty: 0.4, cultural_relevance: 1 },
@@ -107,24 +137,59 @@ function maxSim(v: number[] | null, set: number[][]): number {
   return m;
 }
 
-export function audienceResonance(v: number[] | null, profile: EditorialProfile): { value: number | null; note: string } {
-  if (!v) return { value: null, note: 'No text representation to compare with past posts.' };
-  if (profile.resonance.length < 20) {
-    return { value: null, note: `Not enough imported post metrics (${profile.resonance.length} posts; 20 needed).` };
-  }
-  const sims = profile.resonance
-    .map((p) => ({ s: cosine(v, p.embedding), p: p.percentile }))
-    .filter((x) => x.s > 0.12)
-    .sort((a, b) => b.s - a.s)
-    .slice(0, 10);
-  if (sims.length < 3) return { value: null, note: 'Too few comparable past posts to estimate audience resonance.' };
+function shrunkResonance(sims: { s: number; p: number }[]): number {
   // Shrink toward the median (0.5) so a handful of viral posts cannot dominate.
   const prior = 2;
   const num = sims.reduce((acc, x) => acc + x.s * x.p, 0) + prior * 0.5;
   const den = sims.reduce((acc, x) => acc + x.s, 0) + prior;
+  return clamp01(num / den);
+}
+
+/**
+ * Audience resonance from two separate comparisons with past eccö posts: caption wording
+ * (lexical) and, where the editor supplied post images, colour and tone. Each needs its own
+ * minimum evidence; the result says which ones were used.
+ */
+export function audienceResonance(
+  v: number[] | null, profile: EditorialProfile, visual?: number[] | null,
+): { value: number | null; note: string } {
+  const withText = profile.resonance.filter((p) => p.embedding);
+  const withVisual = profile.resonance.filter((p) => p.visual);
+  const parts: { value: number; note: string }[] = [];
+  const reasons: string[] = [];
+
+  if (!v) reasons.push('no text to compare');
+  else if (withText.length < 20) reasons.push(`${withText.length} posts with metrics (20 needed)`);
+  else {
+    const sims = withText
+      .map((p) => ({ s: cosine(v, p.embedding!), p: p.percentile }))
+      .filter((x) => x.s > 0.12)
+      .sort((a, b) => b.s - a.s)
+      .slice(0, 10);
+    if (sims.length >= 3) parts.push({ value: shrunkResonance(sims), note: `${sims.length} posts with similar wording` });
+    else reasons.push('too few posts with similar wording');
+  }
+
+  if (visual && withVisual.length >= 20) {
+    const sims = withVisual
+      .map((p) => ({ s: visualScale(cosine(visual, p.visual!)), raw: cosine(visual, p.visual!), p: p.percentile }))
+      .filter((x) => x.raw >= VISUAL_COMPARABLE)
+      .sort((a, b) => b.s - a.s)
+      .slice(0, 10);
+    if (sims.length >= 3) parts.push({ value: shrunkResonance(sims), note: `${sims.length} posts with similar colour and tone` });
+  }
+
+  if (!parts.length) {
+    return {
+      value: null,
+      note: profile.resonance.length < 20
+        ? `Not enough imported post metrics (${profile.resonance.length} posts; 20 needed).`
+        : `Too few comparable past posts to estimate audience resonance (${reasons.join('; ') || 'no close matches'}).`,
+    };
+  }
   return {
-    value: clamp01(num / den),
-    note: `Based on ${sims.length} similar eccö posts (${profile.resonanceBasis}); shrunk toward the median.`,
+    value: parts.reduce((a, x) => a + x.value, 0) / parts.length,
+    note: `Based on ${parts.map((x) => x.note).join(' and ')} (${profile.resonanceBasis}); shrunk toward the median.`,
   };
 }
 
@@ -178,14 +243,20 @@ export function scoreReference(r: ScorableReference, profile: EditorialProfile, 
   }
 
   // Visual affinity: colour and tone only (colour-tone-v1). It does not recognise subjects or style.
+  // Two reference points, kept apart in the note: references you approved, and eccö's own posts.
+  const hasApprovedVisual = profile.approvedVisualCount >= MIN_VISUAL_APPROVED && !!profile.approvedVisualCentroid;
+  const hasHistoryVisual = (profile.historyVisualCount ?? 0) >= MIN_VISUAL_HISTORY && !!profile.historyVisualCentroid;
   if (!r.visual_embedding) {
     add('visual_affinity', null, 'Preview image not analysed yet.');
-  } else if (profile.approvedVisualCount < MIN_VISUAL_APPROVED || !profile.approvedVisualCentroid) {
-    add('visual_affinity', null, `Needs at least ${MIN_VISUAL_APPROVED} approved references with analysed images (${profile.approvedVisualCount} so far).`);
+  } else if (!hasApprovedVisual && !hasHistoryVisual) {
+    add('visual_affinity', null, `Needs at least ${MIN_VISUAL_APPROVED} approved references with analysed images (${profile.approvedVisualCount} so far) or ${MIN_VISUAL_HISTORY} eccö post images (${profile.historyVisualCount ?? 0} so far).`);
   } else {
-    const vs = visualScale(cosine(r.visual_embedding, profile.approvedVisualCentroid));
-    add('visual_affinity', vs, `Colour and tone similarity to approved references ${vs.toFixed(2)} (colour-tone-v1; does not recognise subjects or style).`);
-    if (vs >= 0.7) reasons.push('Colour and tone close to references you approved');
+    const va = hasApprovedVisual ? visualScale(cosine(r.visual_embedding, profile.approvedVisualCentroid)) : null;
+    const vh = hasHistoryVisual ? visualScale(cosine(r.visual_embedding, profile.historyVisualCentroid!)) : null;
+    const vs = va !== null && vh !== null ? 0.7 * va + 0.3 * vh : (va ?? vh)!;
+    const parts = [va !== null ? `approved references ${va.toFixed(2)}` : null, vh !== null ? `eccö's posts ${vh.toFixed(2)}` : null].filter(Boolean);
+    add('visual_affinity', vs, `Colour and tone similarity to ${parts.join(', ')} (colour-tone-v1; does not recognise subjects or style).`);
+    if (vs >= 0.7) reasons.push(va !== null ? 'Colour and tone close to references you approved' : 'Colour and tone close to eccö’s own posts');
   }
 
   // Novelty relative to what eccö already holds or published
@@ -219,7 +290,7 @@ export function scoreReference(r: ScorableReference, profile: EditorialProfile, 
   add('source_reliability', rel, `Source baseline adjusted for attribution status (${r.attribution_status}).`);
   if (r.attribution_status === 'reported_incorrect') caveats.push('Attribution reported incorrect');
 
-  const ar = audienceResonance(v, profile);
+  const ar = audienceResonance(v, profile, r.visual_embedding);
   add('audience_resonance', ar.value, ar.note);
   if (ar.value !== null && ar.value >= 0.65) reasons.push('Similar eccö posts resonated with the audience');
 
@@ -230,7 +301,12 @@ export function scoreReference(r: ScorableReference, profile: EditorialProfile, 
 
   const penalties: ScoreResult['penalties'] = [];
   const nearestHistory = maxSim(v, profile.historyEmbeddings);
-  if (nearestHistory >= 0.6) {
+  const samePicture = alreadyPosted(r.visual_hash, profile.publishedImages);
+  if (samePicture.length) {
+    // A near-identical image was posted before: a stronger signal than similar wording.
+    penalties.push({ key: 'historical_exposure', label: 'eccö already posted this image', amount: Math.max(0.2, ctx.historicalExposurePenalty ?? 0.1) });
+    caveats.push(`Same image as an eccö post${samePicture[0]!.publishedAt ? ` from ${samePicture[0]!.publishedAt.slice(0, 10)}` : ''}`);
+  } else if (nearestHistory >= 0.6) {
     penalties.push({ key: 'historical_exposure', label: 'Very close to a post eccö already published', amount: ctx.historicalExposurePenalty ?? 0.1 });
   }
   // Unverifiable or inaccessible material must not rank highly just because it is attractive

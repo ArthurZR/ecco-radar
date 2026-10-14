@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { db } from '../../db/pool.js';
 import { badRequest } from '../../lib/errors.js';
 import { ImportOptionsSchema } from './schemas.js';
+import { pruneOrphanFiles } from '../post-media/service.js';
 import { commitImport, deleteImport, inspectCsv, rollbackImport, validateImport } from './service.js';
 
 async function readUpload(req: FastifyRequest): Promise<{ buf: Buffer; filename: string; fields: Record<string, string> }> {
@@ -69,6 +70,11 @@ export async function importRoutes(app: FastifyInstance): Promise<void> {
     )).rows;
   });
 
-  app.post('/api/imports/:id/rollback', async (req) => rollbackImport(z.object({ id: z.string().uuid() }).parse(req.params).id, req.user!.id));
+  app.post('/api/imports/:id/rollback', async (req) => {
+    const out = await rollbackImport(z.object({ id: z.string().uuid() }).parse(req.params).id, req.user!.id);
+    // Posts removed by the rollback take their images with them; delete the stored files too.
+    await pruneOrphanFiles();
+    return out;
+  });
   app.delete('/api/imports/:id', async (req) => deleteImport(z.object({ id: z.string().uuid() }).parse(req.params).id));
 }

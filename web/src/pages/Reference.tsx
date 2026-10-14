@@ -391,11 +391,15 @@ function RelatedGroup({ title, list, note }: { title: string; list: Mini[]; note
 interface PostSummary {
   platform: string; account: string; permalink: string | null; publishedAt: string | null; format: string | null;
   captionExcerpt: string | null; metrics: Record<string, number>; engagementPerReach: number | null; similarity?: number;
+  imageId: string | null;
 }
 interface Performance {
   published: PostSummary[];
   unmatchedReports: { platform: string | null; permalink: string | null; publishedOn: string | null }[];
   similarCaptions: PostSummary[];
+  alreadyPosted: (PostSummary & { distance: number })[];
+  similarImages: PostSummary[];
+  postsWithImages: number;
   baseline: { n: number; median: number | null; p25: number | null; p75: number | null } | null;
   notes: string[];
 }
@@ -403,19 +407,22 @@ interface Performance {
 const pct = (v: number | null) => (v === null ? '—' : `${(v * 100).toFixed(1)}%`);
 const METRIC_ORDER = ['reach', 'views', 'impressions', 'likes', 'comments', 'shares', 'saves', 'follows'];
 
-function PostRow({ p }: { p: PostSummary }) {
+function PostRow({ p, similarityLabel = 'wording similarity' }: { p: PostSummary; similarityLabel?: string }) {
   const metrics = METRIC_ORDER.filter((m) => p.metrics[m] !== undefined);
   return (
-    <div className="post-row">
+    <div className={`post-row${p.imageId ? ' with-image' : ''}`}>
+      {p.imageId ? <img className="post-thumb" src={`/api/post-media/${p.imageId}/image`} alt={`eccö post image${p.publishedAt ? ` from ${fmtDate(p.publishedAt)}` : ''}`} loading="lazy" /> : null}
+      <div className="post-text">
       <div className="small">
         {p.permalink ? <a href={p.permalink} target="_blank" rel="noopener noreferrer">{p.platform} @{p.account}</a> : `${p.platform} @${p.account}`}
         {' · '}{p.publishedAt ? fmtDate(p.publishedAt) : 'date unknown'}{p.format ? ` · ${p.format}` : ''}
-        {p.similarity !== undefined ? <span className="muted"> · wording similarity {p.similarity.toFixed(2)}</span> : null}
+        {p.similarity !== undefined ? <span className="muted"> · {similarityLabel} {p.similarity.toFixed(2)}</span> : null}
       </div>
       {p.captionExcerpt ? <div className="small muted">{p.captionExcerpt}</div> : null}
       <div className="small mono">
         {metrics.length ? metrics.map((m) => `${m} ${fmtNum(p.metrics[m]!)}`).join(' · ') : 'no metrics in the export'}
         {' · '}engagement/reach {pct(p.engagementPerReach)}
+      </div>
       </div>
     </div>
   );
@@ -430,6 +437,12 @@ function PerformancePanel({ refNumber }: { refNumber: number }) {
       <ErrorBox error={q.error} />
       {d ? (
         <div className="stack">
+          {d.alreadyPosted.length ? (
+            <div className="notice warn small">
+              <b>eccö already posted this image.</b> The preview is near-identical to {d.alreadyPosted.length === 1 ? 'this post' : 'these posts'}:
+              {d.alreadyPosted.map((p, i) => <PostRow key={i} p={p} />)}
+            </div>
+          ) : null}
           {d.published.length ? (
             <div><h3>Your recorded post of this reference</h3>{d.published.map((p, i) => <PostRow key={i} p={p} />)}</div>
           ) : null}
@@ -441,6 +454,9 @@ function PerformancePanel({ refNumber }: { refNumber: number }) {
           ) : null}
           {d.similarCaptions.length ? (
             <div><h3>Imported posts with similar wording</h3>{d.similarCaptions.map((p, i) => <PostRow key={i} p={p} />)}</div>
+          ) : null}
+          {d.similarImages.length ? (
+            <div><h3>Imported posts with similar colour and tone</h3>{d.similarImages.map((p, i) => <PostRow key={i} p={p} similarityLabel="colour/tone similarity" />)}</div>
           ) : null}
           {d.baseline ? (
             <p className="small" style={{ margin: 0 }}>

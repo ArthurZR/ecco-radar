@@ -57,6 +57,9 @@ web (React SPA) ──/api──▶ server (Fastify) ──▶ PostgreSQL
 - `import_batches`, `import_raw_rows`, `historical_posts`, `historical_post_metrics` (per batch, so
   re-imports become newer observations), `historical_post_features`, `account_daily_metrics`
   (X daily totals, never linked to posts).
+- `historical_post_media` (eccö's own post images supplied by the editor: a downscaled file in
+  `MEDIA_DIR` plus colour-tone-v1 vector, dhash-64 and pixel means; the match note says how each was
+  tied to its post), `post_media_imports` (one row per Instagram-export import, for undo).
 
 ## Ranking
 

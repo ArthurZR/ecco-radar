@@ -111,22 +111,25 @@ export async function computeLearnedFeatures(): Promise<LearnedFeature[]> {
 
 export async function computeResonance(): Promise<{ posts: PostResonance[]; basis: string }> {
   // Latest observation of each metric per post (later imports supersede earlier ones).
-  const { rows } = await db().query<{ id: string; platform: string; text_embedding: number[] | null; metrics: Record<string, number> }>(`
+  const { rows } = await db().query<{ id: string; platform: string; text_embedding: number[] | null; visual: number[] | null; metrics: Record<string, number> }>(`
     WITH latest AS (
       SELECT DISTINCT ON (m.post_id, m.metric) m.post_id, m.metric, m.value
         FROM historical_post_metrics m JOIN import_batches b ON b.id = m.batch_id
        WHERE b.status = 'committed'
        ORDER BY m.post_id, m.metric, b.created_at DESC
     )
-    SELECT p.id, p.platform, p.text_embedding, jsonb_object_agg(l.metric, l.value) AS metrics
+    SELECT p.id, p.platform, p.text_embedding,
+           (SELECT m.visual_embedding FROM historical_post_media m WHERE m.post_id = p.id ORDER BY m.position, m.created_at LIMIT 1) AS visual,
+           jsonb_object_agg(l.metric, l.value) AS metrics
       FROM historical_posts p JOIN latest l ON l.post_id = p.id
      GROUP BY p.id`);
   // Instagram: engagement per reach. Only posts with reach > 0 and at least one engagement metric.
   const ENG = ['likes', 'comments', 'shares', 'saves'];
   const scored = rows
-    .filter((r) => r.platform === 'instagram' && r.text_embedding && (r.metrics.reach ?? 0) > 0 && ENG.some((k) => r.metrics[k] !== undefined))
+    .filter((r) => r.platform === 'instagram' && (r.text_embedding || r.visual) && (r.metrics.reach ?? 0) > 0 && ENG.some((k) => r.metrics[k] !== undefined))
     .map((r) => ({
-      embedding: r.text_embedding!,
+      embedding: r.text_embedding,
+      visual: r.visual,
       rate: ENG.reduce((a, k) => a + (r.metrics[k] ?? 0), 0) / r.metrics.reach!,
     }));
   const sorted = [...scored].map((s) => s.rate).sort((a, b) => a - b);
@@ -139,13 +142,13 @@ export async function computeResonance(): Promise<{ posts: PostResonance[]; basi
     return sorted.length > 1 ? (lo + (hi - lo - 1) / 2) / (sorted.length - 1) : 0.5;
   };
   return {
-    posts: scored.map((s) => ({ embedding: s.embedding, percentile: pct(s.rate) })),
+    posts: scored.map((s) => ({ embedding: s.embedding, visual: s.visual, percentile: pct(s.rate) })),
     basis: 'Instagram engagement per reach: (likes + comments + shares + saves) ÷ reach, as percentile rank',
   };
 }
 
 async function buildProfile(): Promise<EditorialProfile> {
-  const [approved, history, archive, entities, sources, reports, learned, resonance, approvedVisual] = await Promise.all([
+  const [approved, history, archive, entities, sources, reports, learned, resonance, approvedVisual, postImages] = await Promise.all([
     db().query<{ text_embedding: number[] }>(
       `SELECT text_embedding FROM reference_items WHERE deleted_at IS NULL AND text_embedding IS NOT NULL AND status = ANY($1) LIMIT 5000`,
       [POSITIVE_STATUSES],
@@ -172,7 +175,16 @@ async function buildProfile(): Promise<EditorialProfile> {
       `SELECT visual_embedding FROM reference_items WHERE deleted_at IS NULL AND visual_embedding IS NOT NULL AND status = ANY($1) LIMIT 5000`,
       [POSITIVE_STATUSES],
     ),
+    // eccö's own post images (supplied by the editor). Every image counts for "already posted";
+    // the cover image of each post counts for visual affinity.
+    db().query<{ post_id: string; visual_hash: string; visual_embedding: number[]; position: number; permalink: string | null; published_at: Date | null }>(
+      `SELECT m.post_id, m.visual_hash, m.visual_embedding, m.position, p.permalink, p.published_at
+         FROM historical_post_media m JOIN historical_posts p ON p.id = m.post_id
+        ORDER BY m.post_id, m.position, m.created_at LIMIT 20000`,
+    ),
   ]);
+  const covers = new Map<string, number[]>();
+  for (const m of postImages.rows) if (!covers.has(m.post_id)) covers.set(m.post_id, m.visual_embedding);
   const reliability = new Map<string, number>();
   for (const s of sources.rows) {
     const rep = reports.rows.find((r) => r.source_id === s.id);
@@ -188,6 +200,11 @@ async function buildProfile(): Promise<EditorialProfile> {
     approvedVisualCount: approvedVisual.rows.length,
     historyCentroid: centroid(historyVecs),
     historyCount: historyVecs.length,
+    historyVisualCentroid: centroid([...covers.values()]),
+    historyVisualCount: covers.size,
+    publishedImages: postImages.rows.map((m) => ({
+      hash: m.visual_hash, postId: m.post_id, permalink: m.permalink, publishedAt: m.published_at ? m.published_at.toISOString() : null,
+    })),
     featureWeights: new Map(learned.map((f) => [f.key, f.weight])),
     archiveEmbeddings: archive.rows.map((r) => r.text_embedding),
     historyEmbeddings: historyVecs,

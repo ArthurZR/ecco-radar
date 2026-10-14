@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { test as base, expect, type Page } from '@playwright/test';
 
 export const EDITOR = { email: 'editor@example.com', password: 'e2e-password-1234' };
@@ -8,6 +9,13 @@ export async function signIn(page: Page): Promise<void> {
   await page.getByLabel('Password').fill(EDITOR.password);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { name: 'RADAR', exact: true })).toBeVisible();
+}
+
+/** Automated WCAG 2.1 A/AA checks on the current page; all violations are reported, not just the first. */
+export async function audit(page: Page, label: string): Promise<void> {
+  const { violations } = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
+  const summary = violations.map((v) => `${label}: ${v.id} (${v.impact}) ${v.help} → ${v.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(' | ')}`);
+  expect.soft(summary, `accessibility violations on ${label}`).toEqual([]);
 }
 
 /**

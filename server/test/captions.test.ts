@@ -100,3 +100,27 @@ describe('AI usage limit', () => {
     expect((await app.inject({ url: '/api/settings', headers: { cookie } })).json().ai.budget.limit).toBeNull();
   });
 });
+
+describe('publication pack', () => {
+  it('builds a credit line from stated facts only and lists what to settle before posting', async () => {
+    const r = await ingestReference({ sourceId: 'manual', originalUrl: 'https://example.com/pack', title: 'Aqua button study', creatorName: 'Test Designer', publishedRaw: '2003', mediaType: 'image', previewUrl: 'https://example.com/pack.png' }, { method: 'manual_import', path: [] });
+    const { app, cookie } = await appWithSession();
+    await app.inject({ method: 'PUT', url: `/api/captions/${r.refNumber}/final`, headers: { cookie }, payload: { body: 'Aqua button study, first shown in 1997.' } });
+    const { pack } = (await app.inject({ url: `/api/captions/${r.refNumber}/export`, headers: { cookie } })).json();
+    expect(pack.creditLine).toBe('“Aqua button study”, Test Designer, 2003. Via Manual URL import.');
+    expect(pack.links.map((l: { url: string }) => l.url)).toEqual(['https://example.com/pack', 'https://example.com/pack.png']);
+    expect(pack.checks.map((c: { key: string }) => c.key)).toEqual(['flags', 'attribution', 'rights', 'status']);
+    expect(pack.captionFlags.map((f: { claim: string }) => f.claim)).toContain('1997');
+    // Caption and credit come first; links and checks sit below the editor-only marker.
+    const [publicPart, editorPart] = pack.text.split('--- for the editor only, not for posting ---');
+    expect(publicPart).toContain('Aqua button study, first shown in 1997.');
+    expect(publicPart).not.toMatch(/https?:/);
+    expect(editorPart).toContain('Original page: https://example.com/pack');
+
+    // A creator reported as misattributed never appears in the credit line.
+    await db().query(`UPDATE reference_items SET attribution_status = 'reported_incorrect' WHERE id = $1`, [r.id]);
+    const again = (await app.inject({ url: `/api/captions/${r.refNumber}/export`, headers: { cookie } })).json().pack;
+    expect(again.creditLine).toBe('“Aqua button study”, creator unknown, 2003. Via Manual URL import.');
+    expect(again.checks.find((c: { key: string }) => c.key === 'attribution').text).toMatch(/reported incorrect/);
+  });
+});

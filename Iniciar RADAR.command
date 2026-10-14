@@ -43,7 +43,18 @@ ENV
 fi
 
 say "Montando e ligando o RADAR. Na primeira vez isso leva alguns minutos…"
-docker compose up -d --build --wait || fail "Algo deu errado ao ligar. Copie as mensagens acima e mande para a Claude."
+# The database starts first. Its password is set once, when its data folder is created; if this
+# .env was made later, the two no longer match and the app cannot connect. Inside the database
+# container no password is needed, so the stored password is brought in line with .env each time.
+docker compose up -d --wait db || fail "O banco de dados não ligou. Copie as mensagens acima e mande para a Claude."
+DB_PASSWORD=$(grep -E '^POSTGRES_PASSWORD=' .env | cut -d= -f2- | tr -d '[:space:]')
+if printf '%s' "$DB_PASSWORD" | grep -Eq '^[A-Za-z0-9]+$'; then
+  docker compose exec -T db psql -U radar -d radar -q -c "ALTER USER radar WITH PASSWORD '$DB_PASSWORD'" >/dev/null 2>&1 || true
+fi
+if ! docker compose up -d --build --wait; then
+  echo; echo "Últimas mensagens do RADAR:"; docker compose logs --tail 40 app
+  fail "Algo deu errado ao ligar. Copie as mensagens acima e mande para a Claude."
+fi
 
 USERS=$(docker compose exec -T db psql -U radar -d radar -Atc "SELECT count(*) FROM users" 2>/dev/null || echo 0)
 if [ "${USERS:-0}" = "0" ]; then

@@ -53,8 +53,24 @@ if (-not (Test-Path ".env")) {
 }
 
 Say "Montando e ligando o RADAR. Na primeira vez isso leva alguns minutos..."
+# The database starts first. Its password is set once, when its data folder is created; if this
+# .env was made later (for example after extracting RADAR again somewhere else), the two no longer
+# match and the app cannot connect. Inside the database container no password is needed, so the
+# stored password is brought in line with this .env every time. Data is untouched.
+docker compose up -d --wait db
+if ($LASTEXITCODE -ne 0) { Fail "O banco de dados não ligou. Tire um print desta janela e mande para a Claude." }
+$dbPassword = ((Get-Content ".env" | Where-Object { $_ -like "POSTGRES_PASSWORD=*" } | Select-Object -First 1) -replace '^POSTGRES_PASSWORD=', '').Trim()
+if ($dbPassword -match '^[A-Za-z0-9]+$') {
+  docker compose exec -T db psql -U radar -d radar -q -c "ALTER USER radar WITH PASSWORD '$dbPassword'" *> $null
+}
+
 docker compose up -d --build --wait
-if ($LASTEXITCODE -ne 0) { Fail "Algo deu errado ao ligar. Tire um print desta janela e mande para a Claude." }
+if ($LASTEXITCODE -ne 0) {
+  Write-Host ""
+  Write-Host "Últimas mensagens do RADAR:" -ForegroundColor Yellow
+  docker compose logs --tail 40 app
+  Fail "Algo deu errado ao ligar. Tire um print desta janela (com as mensagens acima) e mande para a Claude."
+}
 
 $users = (docker compose exec -T db psql -U radar -d radar -Atc "SELECT count(*) FROM users" 2> $null | Out-String).Trim()
 if (-not $users) { $users = "0" }

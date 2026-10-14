@@ -6,10 +6,11 @@ import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { ZodError } from 'zod';
+import { ZodError, z } from 'zod';
 import { env } from './config/env.js';
 import { db } from './db/pool.js';
 import { AppError } from './lib/errors.js';
+import { heartbeat, leave, presence } from './lib/presence.js';
 import { SESSION_COOKIE, resolveSession } from './auth/sessions.js';
 import { authRoutes } from './auth/routes.js';
 import { referenceRoutes } from './modules/references/routes.js';
@@ -98,6 +99,21 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
     } catch {
       return reply.status(503).send({ ok: false });
     }
+  });
+
+  // Tab presence for the desktop start scripts (see lib/presence.ts). The state answer is public
+  // because the script on the editor's computer has no session; it says only whether tabs are open.
+  app.get('/api/presence', { config: { public: true } }, async () => presence());
+  const TabBody = z.object({ tabId: z.string().regex(/^[A-Za-z0-9-]{8,64}$/) });
+  app.post('/api/presence/heartbeat', async (req) => {
+    heartbeat(TabBody.parse(req.body).tabId);
+    return { ok: true };
+  });
+  // Sent with navigator.sendBeacon as the page closes, so its body arrives as text.
+  app.post('/api/presence/leave', async (req) => {
+    const raw = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body;
+    leave(TabBody.parse(raw).tabId);
+    return { ok: true };
   });
 
   await app.register(authRoutes);

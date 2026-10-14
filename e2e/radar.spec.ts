@@ -253,3 +253,8 @@ test('year fields accept a year typed one digit at a time', async ({ page }) => 
   await expect(feedFrom).toHaveValue('1999');
   await expect(page).toHaveURL(/periodFrom=1999/);
 });
+
+test('an open RADAR tab tells the server it is open, for the desktop auto-stop', async ({ page }) => {
+  await signIn(page);
+  await expect.poll(async () => (await (await page.request.get('/api/presence')).json()).openTabs).toBeGreaterThan(0);
+});

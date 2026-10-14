@@ -19,6 +19,9 @@ login password once, and opens http://localhost:8787. `Parar RADAR.command` stop
 On Windows, extract the ZIP first, then double-click `Iniciar RADAR (Windows).bat` (if SmartScreen
 warns, choose More info → Run anyway); `Parar RADAR (Windows).bat` stops it. It runs
 `scripts/iniciar-radar.ps1`, which does the same steps.
+Started this way, RADAR switches itself off (`docker compose down`, data kept) about half a minute
+after the last RADAR browser tab closes, or when the start window closes. The browser tells the
+server which tabs are open (`/api/presence`); servers started any other way ignore it.
 The steps below are the manual equivalent and the development setup.
 
 Requirements: Node 20+ (22 recommended) and PostgreSQL 14+.

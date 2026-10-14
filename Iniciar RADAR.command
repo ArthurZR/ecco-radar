@@ -61,7 +61,28 @@ if [ "${USERS:-0}" = "0" ]; then
     || fail "Não consegui criar o login. Copie as mensagens acima e mande para a Claude."
 fi
 
+# RADAR switches itself off when you are done: once every RADAR tab in the browser has been closed
+# (checked every few seconds), or when this window is closed or Enter is pressed. Data is kept.
+trap 'docker compose down >/dev/null 2>&1' EXIT HUP INT TERM
+MAIN_PID=$$
+(
+  SAW_TAB=0
+  while sleep 5; do
+    kill -0 "$MAIN_PID" 2>/dev/null || exit 0
+    STATE=$(curl -fsS --max-time 5 http://localhost:8787/api/presence 2>/dev/null || true)
+    echo "$STATE" | grep -q '"openTabs":[1-9]' && SAW_TAB=1
+    # Only a tab opened during this run counts, so a stale state never stops a fresh start.
+    if [ "$SAW_TAB" = 1 ] && echo "$STATE" | grep -q '"closed":true'; then
+      kill -TERM "$MAIN_PID" 2>/dev/null
+      exit 0
+    fi
+  done
+) &
+
 say "Pronto! Abrindo http://localhost:8787 no navegador."
 open "http://localhost:8787" || true
-echo "Use o Chrome ou o Firefox. Para desligar o RADAR, clique duas vezes em \"Parar RADAR.command\"."
-read -r -p "Pode fechar esta janela (ou aperte Enter)." _
+echo "Use o Chrome ou o Firefox."
+echo
+echo "Quando terminar, feche a aba do RADAR no navegador: o RADAR desliga sozinho em meio minuto."
+echo "Fechar esta janela (ou apertar Enter) também desliga o RADAR."
+read -r _ || true

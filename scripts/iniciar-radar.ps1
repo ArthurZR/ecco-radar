@@ -80,7 +80,32 @@ if ($users -eq "0") {
   if ($created -ne 0) { Fail "Não consegui criar o login. Tire um print desta janela e mande para a Claude." }
 }
 
+# RADAR switches itself off when you are done: a small hidden helper checks every few seconds and
+# runs "docker compose down" (data is kept) once every RADAR tab in the browser has been closed, or
+# once this window is closed. Then it closes this window too.
+$root = (Get-Location).Path -replace "'", "''"
+$watch = @"
+`$parent = $PID
+`$sawTab = `$false
+Set-Location -LiteralPath '$root'
+while (`$true) {
+  Start-Sleep -Seconds 5
+  if (-not (Get-Process -Id `$parent -ErrorAction SilentlyContinue)) { break }
+  try { `$p = Invoke-RestMethod -UseBasicParsing -Uri 'http://localhost:8787/api/presence' -TimeoutSec 5 } catch { `$p = `$null }
+  if (`$p -and `$p.openTabs -gt 0) { `$sawTab = `$true }
+  # Only a tab opened during this run counts, so a stale state never stops a fresh start.
+  if (`$sawTab -and `$p -and `$p.closed) { break }
+}
+docker compose down
+Stop-Process -Id `$parent -ErrorAction SilentlyContinue
+"@
+$encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($watch))
+Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encoded
+
 Say "Pronto! Abrindo http://localhost:8787 no navegador."
 Start-Process "http://localhost:8787"
-Write-Host 'Use o Chrome, o Edge ou o Firefox. Para desligar o RADAR, clique duas vezes em "Parar RADAR (Windows).bat".'
-Read-Host "Pode fechar esta janela (ou aperte Enter)" | Out-Null
+Write-Host 'Use o Chrome, o Edge ou o Firefox.'
+Write-Host ""
+Write-Host "Quando terminar, feche a aba do RADAR no navegador: o RADAR desliga sozinho em meio minuto" -ForegroundColor Yellow
+Write-Host "e esta janela fecha junto. Fechar esta janela também desliga o RADAR." -ForegroundColor Yellow
+Read-Host | Out-Null

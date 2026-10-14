@@ -3,6 +3,7 @@ import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError } from './lib/api';
 import { Loading } from './components/ui';
+import { usePresence } from './lib/presence';
 import { LoginPage } from './pages/Login';
 import { RadarPage } from './pages/Radar';
 import { ReferencePage } from './pages/Reference';
@@ -83,6 +84,7 @@ export function App() {
 
 function Shell({ user }: { user: Me }) {
   useGotoKeys();
+  usePresence();
   const qc = useQueryClient();
   const logout = async () => {
     await api.post('/api/auth/logout').catch(() => {});

@@ -28,6 +28,8 @@ The worker runs inside the API process by default (`RUN_WORKER=true`). To run it
 
 ### Checks
 
+GitHub Actions (`.github/workflows/ci.yml`) runs the same checks on every pull request and on `main`.
+
 ```bash
 npm run typecheck
 npm run lint
@@ -106,9 +108,12 @@ every `#00001`-style ID and never reissues one.
 - **Live sources are unverified.** The adapters were built against each API's documented response
   format and tested with recorded-shape fixtures, but the build environment had no outbound network.
   Each source shows *unverified* until **Sources → Test connection** succeeds from your server.
-- **No visual model.** "Visual affinity" is empty and visually similar references are shown as not
-  available. Text similarity uses a local lexical model (`lexical-hash-v1`), not a neural embedding.
-  The `EmbeddingProvider` interface is where a real model would plug in.
+- **Visual analysis is colour and tone only.** Each preview image is downloaded once and reduced to a
+  local colour/tone vector (`colour-tone-v1`) and a perceptual hash (`dhash-64`). These drive
+  "visually similar", visual duplicate detection and visual affinity, but they do not recognise
+  subjects or style. Turn it off in Settings if you prefer. Text similarity uses a local lexical
+  model (`lexical-hash-v1`), not a neural embedding; the `EmbeddingProvider` interface is where a real
+  model would plug in.
 - **No pgvector.** Embeddings are stored as arrays and compared in the application. That is fine for
   tens of thousands of references; see `docs/ARCHITECTURE.md` for the scaling path.
 - **Instagram is not a source.** Its API does not allow searching other accounts, and scraping is not

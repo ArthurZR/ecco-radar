@@ -10,6 +10,7 @@ import {
 } from './actions.js';
 import { STATUS_META, STATUSES, REJECTION_REASONS } from './status.js';
 import { parseRefNumber } from './types.js';
+import { analyzeReferenceImage } from './visual.js';
 
 const RefParam = z.object({ ref: z.string() });
 
@@ -82,6 +83,12 @@ export async function referenceRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/references/:ref/restore', async (req) => {
     const id = await idForRef(RefParam.parse(req.params).ref);
     return restoreReference(id, req.user!.id);
+  });
+
+  // Analyse this reference's preview image now (the background sweep would otherwise pick it up)
+  app.post('/api/references/:ref/visual', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req) => {
+    const id = await idForRef(RefParam.parse(req.params).ref);
+    return analyzeReferenceImage(id);
   });
 
   // Facets for filter controls

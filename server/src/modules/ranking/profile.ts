@@ -145,7 +145,7 @@ export async function computeResonance(): Promise<{ posts: PostResonance[]; basi
 }
 
 async function buildProfile(): Promise<EditorialProfile> {
-  const [approved, history, archive, entities, sources, reports, learned, resonance] = await Promise.all([
+  const [approved, history, archive, entities, sources, reports, learned, resonance, approvedVisual] = await Promise.all([
     db().query<{ text_embedding: number[] }>(
       `SELECT text_embedding FROM reference_items WHERE deleted_at IS NULL AND text_embedding IS NOT NULL AND status = ANY($1) LIMIT 5000`,
       [POSITIVE_STATUSES],
@@ -168,6 +168,10 @@ async function buildProfile(): Promise<EditorialProfile> {
     ),
     computeLearnedFeatures(),
     computeResonance(),
+    db().query<{ visual_embedding: number[] }>(
+      `SELECT visual_embedding FROM reference_items WHERE deleted_at IS NULL AND visual_embedding IS NOT NULL AND status = ANY($1) LIMIT 5000`,
+      [POSITIVE_STATUSES],
+    ),
   ]);
   const reliability = new Map<string, number>();
   for (const s of sources.rows) {
@@ -180,6 +184,8 @@ async function buildProfile(): Promise<EditorialProfile> {
   return {
     approvedCentroid: centroid(approvedVecs),
     approvedCount: approvedVecs.length,
+    approvedVisualCentroid: centroid(approvedVisual.rows.map((r) => r.visual_embedding)),
+    approvedVisualCount: approvedVisual.rows.length,
     historyCentroid: centroid(historyVecs),
     historyCount: historyVecs.length,
     featureWeights: new Map(learned.map((f) => [f.key, f.weight])),

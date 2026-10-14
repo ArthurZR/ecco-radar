@@ -1,6 +1,7 @@
 import { db } from '../../db/pool.js';
 import { claimJob, completeJob, enqueue, failJob, recoverStaleJobs, type ClaimedJob } from './queue.js';
 import { runExploration, createSession, ExplorationParamsSchema } from '../exploration/engine.js';
+import { analyzeReferenceImage, queuePendingVisualAnalysis } from '../references/visual.js';
 
 const CONCURRENCY = 2;
 const POLL_MS = 2000;
@@ -45,6 +46,9 @@ async function handle(job: ClaimedJob): Promise<void> {
     case 'schedule_tick':
       await scheduleTick();
       return;
+    case 'embed_reference':
+      if (job.payload.kind === 'visual') await analyzeReferenceImage(String(job.payload.referenceId));
+      return;
     default:
       return;
   }
@@ -61,6 +65,7 @@ export function startWorker(log: (msg: string, extra?: unknown) => void): () => 
         lastTick = Date.now();
         await recoverStaleJobs();
         await scheduleTick();
+        await queuePendingVisualAnalysis();
       }
       while (!stopped && active < CONCURRENCY) {
         const job = await claimJob();

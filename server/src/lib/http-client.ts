@@ -36,8 +36,17 @@ export interface HttpResponse {
   body: string;
 }
 
+export interface BinaryResponse {
+  status: number;
+  url: string;
+  contentType: string;
+  body: Buffer;
+}
+
 export interface HttpClient {
   getText(url: string, opts?: GetOptions): Promise<HttpResponse>;
+  /** Raw bytes, e.g. a preview image for visual analysis. */
+  getBytes(url: string, opts?: GetOptions): Promise<BinaryResponse>;
   getJson<T = unknown>(url: string, opts?: GetOptions): Promise<T>;
 }
 
@@ -58,7 +67,7 @@ function parseRetryAfter(value: string | string[] | undefined): number | null {
   return Number.isNaN(date) ? null : Math.max(0, Math.min(date - Date.now(), 120_000));
 }
 
-async function readLimited(body: AsyncIterable<Uint8Array>, maxBytes: number): Promise<string> {
+async function readLimited(body: AsyncIterable<Uint8Array>, maxBytes: number): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let total = 0;
   for await (const chunk of body) {
@@ -66,10 +75,10 @@ async function readLimited(body: AsyncIterable<Uint8Array>, maxBytes: number): P
     if (total > maxBytes) throw new HttpError(`Response exceeded ${maxBytes} bytes`, null);
     chunks.push(Buffer.from(chunk));
   }
-  return Buffer.concat(chunks).toString('utf8');
+  return Buffer.concat(chunks);
 }
 
-async function getOnce(rawUrl: string, opts: Required<Pick<GetOptions, 'timeoutMs' | 'maxBytes'>> & GetOptions, userAgent: string): Promise<HttpResponse> {
+async function getOnce(rawUrl: string, opts: Required<Pick<GetOptions, 'timeoutMs' | 'maxBytes'>> & GetOptions, userAgent: string): Promise<BinaryResponse> {
   let current = rawUrl;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const url = assertSafeUrlShape(current); // every hop is re-validated
@@ -106,7 +115,7 @@ function isRetryable(err: unknown): boolean {
 }
 
 export function createHttpClient(userAgent: string): HttpClient {
-  const getText: HttpClient['getText'] = async (url, opts = {}) => {
+  const getBytes: HttpClient['getBytes'] = async (url, opts = {}) => {
     const o = { timeoutMs: 15_000, maxBytes: 5_000_000, retries: 2, ...opts };
     let attempt = 0;
     for (;;) {
@@ -121,8 +130,13 @@ export function createHttpClient(userAgent: string): HttpClient {
       }
     }
   };
+  const getText: HttpClient['getText'] = async (url, opts) => {
+    const res = await getBytes(url, opts);
+    return { ...res, body: res.body.toString('utf8') };
+  };
   return {
     getText,
+    getBytes,
     async getJson<T>(url: string, opts?: GetOptions) {
       const res = await getText(url, { ...opts, headers: { accept: 'application/json', ...opts?.headers } });
       try {

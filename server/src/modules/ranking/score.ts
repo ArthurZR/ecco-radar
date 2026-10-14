@@ -22,6 +22,8 @@ export interface ScorableReference {
   preview_url: string | null;
   attribution_status: string;
   text_embedding: number[] | null;
+  /** colour-tone-v1 vector of the preview image; kept apart from the text embedding */
+  visual_embedding?: number[] | null;
   tags: string[];
   entity_ids: string[];
 }
@@ -35,6 +37,9 @@ export interface PostResonance {
 export interface EditorialProfile {
   approvedCentroid: number[] | null;
   approvedCount: number;
+  /** centroid of approved references' visual vectors, and how many of them were analysed */
+  approvedVisualCentroid: number[] | null;
+  approvedVisualCount: number;
   historyCentroid: number[] | null;
   historyCount: number;
   /** 'tag:…', 'creator:…', 'source:…', 'entity:…' → learned weight in [-1, 1] */
@@ -77,6 +82,9 @@ const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 // Lexical-hash cosine values between related texts are usually modest; 0.35 is treated as strong.
 const SIM_SCALE = 0.35;
 const scaleSim = (s: number) => clamp01(s / SIM_SCALE);
+// Colour/tone cosines are high even for unrelated images (~0.3–0.6); rescale so 0.5→0 and 0.95→1.
+export const visualScale = (s: number) => clamp01((s - 0.5) / 0.45);
+export const MIN_VISUAL_APPROVED = 3;
 
 const MODE_MULTIPLIERS: Record<ExplorationMode, Partial<Record<Component, number>>> = {
   familiar: { editorial_affinity: 1.5, novelty: 0.4, cultural_relevance: 1 },
@@ -169,7 +177,16 @@ export function scoreReference(r: ScorableReference, profile: EditorialProfile, 
     add('semantic_relevance', null, 'No active query.');
   }
 
-  add('visual_affinity', null, 'No vision model configured; visual affinity is not computed.');
+  // Visual affinity: colour and tone only (colour-tone-v1). It does not recognise subjects or style.
+  if (!r.visual_embedding) {
+    add('visual_affinity', null, 'Preview image not analysed yet.');
+  } else if (profile.approvedVisualCount < MIN_VISUAL_APPROVED || !profile.approvedVisualCentroid) {
+    add('visual_affinity', null, `Needs at least ${MIN_VISUAL_APPROVED} approved references with analysed images (${profile.approvedVisualCount} so far).`);
+  } else {
+    const vs = visualScale(cosine(r.visual_embedding, profile.approvedVisualCentroid));
+    add('visual_affinity', vs, `Colour and tone similarity to approved references ${vs.toFixed(2)} (colour-tone-v1; does not recognise subjects or style).`);
+    if (vs >= 0.7) reasons.push('Colour and tone close to references you approved');
+  }
 
   // Novelty relative to what eccö already holds or published
   const pool = profile.archiveEmbeddings.concat(profile.historyEmbeddings);

@@ -5,7 +5,7 @@ import { DEFAULT_WEIGHTS, DEFAULT_DIVERSITY, WeightsSchema } from '../src/module
 import { textEmbedder } from '../src/lib/embedding.js';
 
 const emptyProfile = (): EditorialProfile => ({
-  approvedCentroid: null, approvedCount: 0, historyCentroid: null, historyCount: 0, featureWeights: new Map(),
+  approvedCentroid: null, approvedCount: 0, approvedVisualCentroid: null, approvedVisualCount: 0, historyCentroid: null, historyCount: 0, featureWeights: new Map(),
   archiveEmbeddings: [], historyEmbeddings: [], approvedEntityIds: new Set(), sourceReliability: new Map([['wikimedia_commons', 0.75]]),
   resonance: [], resonanceBasis: 'test',
 });

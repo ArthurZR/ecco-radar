@@ -5,7 +5,7 @@ import { buildApp } from '../src/app.js';
 import { hashPassword } from '../src/auth/password.js';
 import { syncSources, setHttpClient } from '../src/modules/sources/registry.js';
 import { invalidateProfile } from '../src/modules/ranking/profile.js';
-import type { HttpClient, HttpResponse } from '../src/lib/http-client.js';
+import type { BinaryResponse, HttpClient, HttpResponse } from '../src/lib/http-client.js';
 
 let migrated = false;
 
@@ -57,6 +57,14 @@ export class FakeHttp implements HttpClient {
   }
   async getJson<T>(url: string): Promise<T> {
     return JSON.parse((await this.getText(url)).body) as T;
+  }
+  async getBytes(url: string): Promise<BinaryResponse> {
+    this.calls.push(url);
+    const u = new URL(url);
+    const r = this.routes.find((x) => x.match(u));
+    if (!r) throw Object.assign(new Error(`no fake route for ${u.hostname}${u.pathname}`), { code: 'ENOTFOUND' });
+    const body = Buffer.isBuffer(r.body) ? r.body : Buffer.from(typeof r.body === 'string' ? r.body : JSON.stringify(r.body));
+    return { status: 200, url, contentType: r.contentType ?? 'application/octet-stream', body };
   }
 }
 

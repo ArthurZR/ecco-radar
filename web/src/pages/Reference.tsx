@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { ReportDialog } from '../components/ReportDialog';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { STATUS_LABEL, type Status } from '../lib/types';
@@ -25,13 +26,14 @@ interface Detail {
   reference: {
     id: string; refNumber: number; refLabel: string; originalUrl: string; canonicalUrl: string; sourceId: string; sourceName: string; sourceItemId: string | null;
     creatorName: string | null; creatorUrl: string | null; title: string | null; description: string | null; publishedRaw: string | null; publishedDate: string | null;
-    publishedPrecision: string; discoveredAt: string; previewUrl: string | null; thumbnailUrl: string | null; mediaType: string; width: number | null; height: number | null;
+    publishedPrecision: string; discoveredAt: string; previewUrl: string | null; thumbnailUrl: string | null; cachedPreviewUrl: string | null; mediaType: string; width: number | null; height: number | null;
     durationSeconds: number | null; license: string | null; rightsStatement: string | null; verificationStatus: string; attributionStatus: string; status: Status;
     statusMeta: { label: string; meaning: string }; deletedAt: string | null; embeddingModel: string | null; visualAnalysis: VisualState;
   };
   detectedText: DetectedText | null;
   tags: { tag: string; origin: string; state: string; confidence: number | null }[];
   entities: { entity_id: string; label: string; kind: string; wikidata_id: string | null; external_url: string | null; predicate: string; evidence: string; confidence: number | null; provenance: string; provenance_url: string | null }[];
+  entityRelations: { from_id: string; from_label: string; predicate: string; to_id: string; to_label: string; to_url: string | null; evidence: string; provenance: string; provenance_url: string | null }[];
   duplicates: { kind: string; method: string; score: number | null; evidence: string; other: Mini | null }[];
   related: { semantic: Mini[]; visual: Mini[] | null; sameCreator: Mini[]; sharedEntities: Mini[] };
   discoveries: { id: string; method: string; query_text: string | null; path: { kind: string; label: string; detail?: string }[]; rank_in_results: number | null; discovered_at: string; is_first: boolean; source_id: string; session_id: string | null; session_query: string | null; session_mode: string | null }[];
@@ -72,7 +74,7 @@ export function ReferencePage() {
   const nav = useNavigate();
   const q = useQuery({ queryKey: ['ref', label], queryFn: () => api.get<Detail>(`/api/references/${encodeURIComponent(ref)}`) });
   const status = useStatusChange();
-  const [dialog, setDialog] = useState<null | 'reject' | 'published' | 'delete'>(null);
+  const [dialog, setDialog] = useState<null | 'reject' | 'published' | 'delete' | 'report-attribution' | 'report-irrelevant' | 'report-duplicate'>(null);
   const refresh = () => qc.invalidateQueries({ queryKey: ['ref', label] });
   const call = useMutation({
     mutationFn: ({ path, body, method = 'post' }: { path: string; body?: unknown; method?: 'post' | 'patch' }) => api[method](`/api/references/${ref}/${path}`, body),
@@ -126,13 +128,16 @@ export function ReferencePage() {
           <div>
             <div className="viewer">
               {r.mediaType === 'image' || r.previewUrl ? (
-                <Thumb src={r.previewUrl ?? r.thumbnailUrl} alt={r.title ?? r.refLabel} />
+                <Thumb src={r.previewUrl ?? r.thumbnailUrl} fallback={r.cachedPreviewUrl} alt={r.title ?? r.refLabel} />
               ) : (
                 <div className="noimg" style={{ aspectRatio: '4/3', display: 'flex' }}>No preview</div>
               )}
             </div>
             <div className="small muted" style={{ marginTop: 6 }}>
-              <p>Image shown directly from {hostOf(r.previewUrl ?? r.originalUrl)}.</p>
+              <p>
+                Image shown directly from {hostOf(r.previewUrl ?? r.originalUrl)}.
+                {r.cachedPreviewUrl ? ' RADAR keeps a small local copy (the licence or source permits it) in case the link stops working.' : ''}
+              </p>
               <p>
                 {VISUAL_TEXT[r.visualAnalysis.state]}
                 {r.visualAnalysis.state === 'analysed' ? ` (${r.visualAnalysis.model}, ${fmtDateTime(r.visualAnalysis.at)}). ${r.visualAnalysis.note}` : ''}
@@ -163,11 +168,9 @@ export function ReferencePage() {
               </dl>
               <div className="row" style={{ marginTop: 10 }}>
                 <button className="sm" disabled={r.attributionStatus === 'editor_confirmed' || !r.creatorName} onClick={() => call.mutate({ path: 'report', body: { kind: 'attribution_confirmed' } })}>Confirm attribution</button>
-                <button className="sm" disabled={r.attributionStatus === 'reported_incorrect'} onClick={() => {
-                  const notes = window.prompt('What is wrong with the attribution? (optional)') ?? undefined;
-                  call.mutate({ path: 'report', body: { kind: 'attribution_incorrect', notes: notes || undefined } });
-                }}>Report incorrect attribution</button>
-                <button className="sm" onClick={() => call.mutate({ path: 'report', body: { kind: 'irrelevant', scope: 'item' } })}>Mark irrelevant</button>
+                <button className="sm" disabled={r.attributionStatus === 'reported_incorrect'} onClick={() => setDialog('report-attribution')}>Report incorrect attribution</button>
+                <button className="sm" onClick={() => setDialog('report-irrelevant')}>Mark irrelevant…</button>
+                <button className="sm" onClick={() => setDialog('report-duplicate')}>Duplicate of…</button>
               </div>
             </Panel>
 
@@ -196,10 +199,23 @@ export function ReferencePage() {
 
             <Panel title="Cultural connections">
               <h3 style={{ marginBottom: 4 }}>Documented</h3>
-              {documented.length ? <EntityList list={documented} onDecide={(e, verdict) => call.mutate({ path: 'relationships', body: { entityId: e.entity_id, predicate: e.predicate, verdict } })} /> : <p className="small muted">No documented connections. They come from source metadata or Wikidata statements.</p>}
+              {documented.length ? <EntityList list={documented} onDecide={(e, verdict, correctPredicate) => call.mutate({ path: 'relationships', body: { entityId: e.entity_id, predicate: e.predicate, verdict, correctPredicate } })} /> : <p className="small muted">No documented connections. They come from source metadata or Wikidata statements.</p>}
               <h3 style={{ margin: '10px 0 4px' }}>Inferred (not verified)</h3>
-              {inferred.length ? <EntityList list={inferred} onDecide={(e, verdict) => call.mutate({ path: 'relationships', body: { entityId: e.entity_id, predicate: e.predicate, verdict } })} /> : <p className="small muted">None.</p>}
+              {inferred.length ? <EntityList list={inferred} onDecide={(e, verdict, correctPredicate) => call.mutate({ path: 'relationships', body: { entityId: e.entity_id, predicate: e.predicate, verdict, correctPredicate } })} /> : <p className="small muted">None.</p>}
               {rejectedRel.length ? <p className="small muted" style={{ marginTop: 8 }}>Rejected by you: {rejectedRel.map((e) => e.label).join(', ')}</p> : null}
+              {d.entityRelations.length ? (
+                <>
+                  <h3 style={{ margin: '10px 0 4px' }}>Further connections in the graph</h3>
+                  <ul className="small graph-edges">
+                    {d.entityRelations.map((x) => (
+                      <li key={`${x.from_id}-${x.predicate}-${x.to_id}`}>
+                        {x.from_label} <span className="sep">→ {x.predicate.replace(/_/g, ' ')} →</span> {x.to_url ? <a href={x.to_url} target="_blank" rel="noopener noreferrer">{x.to_label}</a> : x.to_label}
+                        <span className="muted"> · {x.evidence === 'documented' ? (x.provenance_url ? <a href={x.provenance_url} target="_blank" rel="noopener noreferrer">{x.provenance}</a> : x.provenance) : `${x.evidence.replace('_', ' ')}: ${x.provenance}`}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
             </Panel>
 
             <Panel title="How it was found">
@@ -236,7 +252,22 @@ export function ReferencePage() {
 
             <Panel title="Captions">
               {d.finalCaption ? <div className="caption-text">{d.finalCaption.body}</div> : <p className="small muted">No final caption.</p>}
-              <p className="small muted">{d.captionDrafts.length} draft version(s).</p>
+              {d.captionDrafts.length ? (
+                <ol className="drafts-mini">
+                  {d.captionDrafts.slice(0, 5).map((x) => (
+                    <li key={x.id} className="small"><span className="mono">v{x.version}</span> <span className="muted">{x.origin.replace(/_/g, ' ')} · {fmtDateTime(x.created_at)}</span><div>{x.preview}</div></li>
+                  ))}
+                </ol>
+              ) : <p className="small muted">No drafts yet.</p>}
+              {d.captionDrafts.length > 5 ? <p className="small muted">{d.captionDrafts.length - 5} older version(s) in Caption Studio.</p> : null}
+              <h3>Research sources</h3>
+              {d.researchSources.length ? (
+                <ul className="small">
+                  {d.researchSources.map((x) => (
+                    <li key={x.id}><a href={x.url} target="_blank" rel="noopener noreferrer">{x.title ?? hostOf(x.url)}</a>{x.publisher ? <span className="muted"> · {x.publisher}</span> : null}</li>
+                  ))}
+                </ul>
+              ) : <p className="small muted">None yet. Add them in Caption Studio; they stay out of the caption itself.</p>}
               <Link className="btn" to={`/studio/${r.refNumber}`}>Open in Caption Studio</Link>
               {d.publicationReports.length ? (
                 <div style={{ marginTop: 10 }}>
@@ -282,6 +313,13 @@ export function ReferencePage() {
       {dialog === 'published' ? (
         <PublishedDialog refLabel={r.refLabel} onCancel={() => setDialog(null)} onConfirm={(c) => { status.mutate({ refLabel: r.refLabel, change: c, previous: r.status }); setDialog(null); }} />
       ) : null}
+      {dialog?.startsWith('report-') ? (
+        <ReportDialog
+          refLabel={r.refLabel}
+          initial={dialog === 'report-irrelevant' ? 'irrelevant' : dialog === 'report-duplicate' ? 'duplicate_of' : 'attribution_incorrect'}
+          onClose={() => setDialog(null)}
+        />
+      ) : null}
       {dialog === 'delete' ? (
         <DeleteDialog refLabel={r.refLabel} onCancel={() => setDialog(null)} onConfirm={(reason) => { call.mutate({ path: 'delete', body: { confirm: true, reason: reason || undefined } }); setDialog(null); }} />
       ) : null}
@@ -289,7 +327,9 @@ export function ReferencePage() {
   );
 }
 
-function EntityList({ list, onDecide }: { list: Detail['entities']; onDecide: (e: Detail['entities'][number], v: 'confirm' | 'reject') => void }) {
+const PREDICATES = ['created_by', 'published_in', 'depicts', 'associated_with', 'appeared_in', 'uses_technique', 'belongs_to_period', 'related_movement'];
+
+function EntityList({ list, onDecide }: { list: Detail['entities']; onDecide: (e: Detail['entities'][number], v: 'confirm' | 'reject' | 'correct', correctPredicate?: string) => void }) {
   return (
     <table className="data">
       <tbody>
@@ -306,6 +346,10 @@ function EntityList({ list, onDecide }: { list: Detail['entities']; onDecide: (e
             </td>
             <td className="right nowrap">
               {e.evidence !== 'editor_confirmed' ? <button className="sm" onClick={() => onDecide(e, 'confirm')}>Confirm</button> : null}
+              <select className="sm" aria-label={`Correct the relationship to ${e.label}`} value="" onChange={(ev) => ev.target.value && onDecide(e, 'correct', ev.target.value)}>
+                <option value="">Correct…</option>
+                {PREDICATES.filter((p) => p !== e.predicate).map((p) => <option key={p} value={p}>{p.replace(/_/g, ' ')}</option>)}
+              </select>
               <button className="sm ghost" onClick={() => onDecide(e, 'reject')}>Reject</button>
             </td>
           </tr>

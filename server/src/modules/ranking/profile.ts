@@ -43,7 +43,11 @@ export interface LearnedFeature {
   overridden: boolean;
 }
 
-/** Signals from the latest (non-reverted) status decision of each reference since the last reset. */
+/**
+ * Signals from the latest (non-reverted) status decision of each reference since the last reset.
+ * An "irrelevant" report counts as a rejection with the scope the editor chose; a later status
+ * change supersedes it, as any later decision does.
+ */
 export async function computeLearnedFeatures(): Promise<LearnedFeature[]> {
   const { rows } = await db().query<{
     reference_id: string; new_status: string; reason_scope: string | null; reason_code: string | null;
@@ -52,9 +56,11 @@ export async function computeLearnedFeatures(): Promise<LearnedFeature[]> {
     WITH last_reset AS (
       SELECT coalesce(max(reset_at), '-infinity'::timestamptz) AS at FROM preference_resets WHERE undone_at IS NULL
     ), latest AS (
-      SELECT DISTINCT ON (d.reference_id) d.reference_id, d.new_status, d.reason_scope, d.reason_code
+      SELECT DISTINCT ON (d.reference_id) d.reference_id,
+             CASE WHEN d.decision_type = 'report_irrelevant' THEN 'rejected' ELSE d.new_status END AS new_status,
+             d.reason_scope, d.reason_code
         FROM editorial_decisions d, last_reset
-       WHERE d.decision_type = 'status_change' AND d.reverted_at IS NULL AND d.created_at > last_reset.at
+       WHERE d.decision_type IN ('status_change', 'report_irrelevant') AND d.reverted_at IS NULL AND d.created_at > last_reset.at
        ORDER BY d.reference_id, d.created_at DESC
     )
     SELECT l.*, r.source_id, r.creator_name,

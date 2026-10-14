@@ -43,12 +43,15 @@ function useGotoKeys() {
         return;
       }
       if (armed && Date.now() - armed < 1200 && GOTO[e.key]) {
+        // The second key of a chord must not also trigger a page shortcut (g then s is not "save").
+        e.stopImmediatePropagation();
         nav(GOTO[e.key]!);
       }
       armed = 0;
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    // Capture phase, so this runs before the page-level shortcut handlers on window.
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, [nav]);
 }
 

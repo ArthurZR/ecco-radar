@@ -40,6 +40,8 @@ export interface FeedItem {
   originalUrl: string;
   previewUrl: string | null;
   thumbnailUrl: string | null;
+  /** Same-origin copy, kept only where the source or licence permits it. */
+  cachedPreviewUrl: string | null;
   mediaType: string;
   width: number | null;
   height: number | null;

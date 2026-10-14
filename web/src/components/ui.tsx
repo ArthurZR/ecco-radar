@@ -57,11 +57,16 @@ export function RefLink({ label, children }: { label: string; children?: ReactNo
   return <Link className="refid" to={`/ref/${label.replace('#', '')}`}>{children ?? label}</Link>;
 }
 
-/** Images are loaded straight from the source with no referrer; failures fall back to a labelled box. */
-export function Thumb({ src, alt, className }: { src: string | null; alt: string; className?: string }) {
-  const [failed, setFailed] = useState(false);
-  if (!src || failed) return <div className={`noimg ${className ?? ''}`}>{src ? 'Image unavailable' : 'No preview'}</div>;
-  return <img src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} className={className} />;
+/**
+ * Images are loaded straight from the source with no referrer. If that fails and RADAR holds a
+ * permitted local copy, the copy is shown instead; otherwise a labelled box.
+ */
+export function Thumb({ src, fallback, alt, className }: { src: string | null; fallback?: string | null; alt: string; className?: string }) {
+  const [attempt, setAttempt] = useState(0);
+  const sources = [src, fallback].filter((x): x is string => !!x);
+  const current = sources[attempt];
+  if (!current) return <div className={`noimg ${className ?? ''}`}>{sources.length ? 'Image unavailable' : 'No preview'}</div>;
+  return <img key={current} src={current} alt={alt} loading="lazy" referrerPolicy="no-referrer" onError={() => setAttempt((a) => a + 1)} className={className} />;
 }
 
 export function Dialog({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode }) {

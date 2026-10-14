@@ -14,6 +14,10 @@ import { analyzeReferenceImage } from './visual.js';
 import { clusterReferences } from './clusters.js';
 import { detectReferenceText, reviewDetectedText } from './detected-text.js';
 import { referencePerformance } from '../insights/reference-performance.js';
+import { ExplorationParamsSchema } from '../exploration/engine.js';
+import { mediaDir } from '../post-media/service.js';
+import { createReadStream } from 'node:fs';
+import { join } from 'node:path';
 
 const RefParam = z.object({ ref: z.string() });
 
@@ -59,7 +63,7 @@ export async function referenceRoutes(app: FastifyInstance): Promise<void> {
   app.patch('/api/references/:ref/notes/:noteId', async (req) => {
     const { ref, noteId } = z.object({ ref: z.string(), noteId: z.string().uuid() }).parse(req.params);
     const id = await idForRef(ref);
-    return updateNote(id, noteId, z.object({ body: z.string() }).parse(req.body).body);
+    return updateNote(id, noteId, z.object({ body: z.string() }).parse(req.body).body, req.user!.id);
   });
 
   app.post('/api/references/:ref/tags', async (req) => {
@@ -104,7 +108,18 @@ export async function referenceRoutes(app: FastifyInstance): Promise<void> {
     return referencePerformance(id, row?.text_embedding ?? null, { embedding: row?.visual_embedding ?? null, hash: row?.visual_hash ?? null });
   });
 
-  app.post('/api/references/:ref/detected-text/run', async (req) => {
+  // The local preview copy, only present where the source or licence permits it (see preview-cache.ts).
+  app.get('/api/references/:ref/cached-preview', async (req, reply) => {
+    const n = parseRefNumber(RefParam.parse(req.params).ref);
+    if (n === null) throw badRequest('Invalid reference number');
+    const r = await db().query<{ cached_preview_path: string | null }>('SELECT cached_preview_path FROM reference_items WHERE ref_number = $1', [n]);
+    const rel = r.rows[0]?.cached_preview_path;
+    if (!rel || !/^previews\/[0-9a-f-]{36}\.webp$/.test(rel)) throw notFound('Cached preview');
+    reply.header('Content-Type', 'image/webp').header('Cache-Control', 'private, max-age=86400');
+    return reply.send(createReadStream(join(mediaDir(), rel)));
+  });
+
+  app.post('/api/references/:ref/detected-text/run', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req) => {
     const id = await idForRef(RefParam.parse(req.params).ref);
     return detectReferenceText(id);
   });
@@ -158,7 +173,9 @@ export async function referenceRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/saved-searches', async () => (await db().query('SELECT * FROM saved_searches ORDER BY created_at DESC')).rows);
   app.post('/api/saved-searches', async (req) => {
     const body = SavedSearchSchema.parse(req.body);
-    if (body.scope === 'feed') FeedQuerySchema.parse(body.params); // reject params the feed would not accept
+    // Reject params the feed or the exploration engine would not accept.
+    if (body.scope === 'feed') FeedQuerySchema.parse(body.params);
+    else ExplorationParamsSchema.parse(body.params);
     const r = await db().query('INSERT INTO saved_searches(name, scope, params, created_by) VALUES ($1,$2,$3,$4) RETURNING *', [
       body.name, body.scope, JSON.stringify(body.params), req.user!.id,
     ]);

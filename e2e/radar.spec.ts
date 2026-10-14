@@ -189,3 +189,51 @@ test('settings: the daily AI limit can be changed and removed', async ({ page })
   await field.press('Enter');
   await expect(page.getByText(/no limit set/)).toBeVisible();
 });
+
+test('report from the feed: an irrelevant recommendation with its scope, or a duplicate by number', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/?sort=ref_number');
+  const first = card(page, 0);
+  const label = (await first.locator('.refid').textContent())!;
+  await first.getByRole('button', { name: 'Report' }).click();
+  const dialog = page.getByRole('dialog', { name: `Report a problem with ${label}` });
+  await dialog.getByLabel('This recommendation is irrelevant for eccö').check();
+  await dialog.getByLabel('This creator').check();
+  await dialog.getByRole('button', { name: 'Send report' }).click();
+  await expect(page.getByText(`${label}: report recorded`)).toBeVisible();
+  // A report is a signal, not a status change: the item stays in the feed.
+  await expect(card(page, 0).locator('.refid')).toHaveText(label);
+
+  // Duplicate by number, from the keyboard (r opens the same dialog).
+  await page.locator('body').press('j');
+  await page.locator('body').press('r');
+  const d2 = page.getByRole('dialog');
+  await d2.getByLabel('It duplicates another reference').check();
+  await d2.getByLabel('Reference it duplicates').fill('#99999');
+  await d2.getByRole('button', { name: 'Send report' }).click();
+  await expect(page.getByText('Reference #99999 not found')).toBeVisible();
+  await d2.getByRole('button', { name: 'Cancel' }).click();
+});
+
+test('explore: a schedule is saved switched off, edited later, and shows its processing limits', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/explore');
+  await page.getByLabel('Starting point').fill('SYNTHETIC aqua interface');
+  await page.getByRole('button', { name: 'y2k', exact: true }).click();
+  await page.getByRole('group', { name: 'Relationship to eccö history' }).getByRole('button', { name: 'Away from it' }).click();
+  await expect(page.getByText('No branches from eccö captions or approvals.')).toBeVisible();
+  await page.getByRole('button', { name: 'Save as schedule…' }).click();
+  await page.getByLabel('Name', { exact: true }).fill('Aqua weekly');
+  await page.getByRole('button', { name: 'Save schedule' }).click();
+  await expect(page.getByText('Schedule saved (off).')).toBeVisible();
+
+  const row = page.locator('.panel', { has: page.getByRole('heading', { name: 'Background schedules' }) }).locator('.row.between', { hasText: 'Aqua weekly' });
+  await expect(row).toContainText('no AI');
+  await expect(row.getByLabel('On')).not.toBeChecked();
+  await row.getByRole('button', { name: 'Edit' }).click();
+  await expect(page.getByRole('heading', { name: 'Editing schedule “Aqua weekly”' })).toBeVisible();
+  await page.getByLabel('Max results').fill('25');
+  await page.getByRole('button', { name: 'Update schedule' }).click();
+  await expect(page.getByText('Schedule updated.')).toBeVisible();
+  await expect(row).toContainText('≤25 results');
+});

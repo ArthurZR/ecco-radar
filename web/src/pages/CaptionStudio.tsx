@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, qs } from '../lib/api';
@@ -106,6 +106,8 @@ function Studio({ refId }: { refId: string }) {
 
   const [active, setActive] = useState<string | null>(null);
   const [compare, setCompare] = useState<string | null>(null);
+  const draftBox = useRef<HTMLTextAreaElement>(null);
+  const finalBox = useRef<HTMLTextAreaElement>(null);
   const [editing, setEditing] = useState<{ parent?: string; body: string } | null>(null);
 
   const [finalText, setFinalText] = useState('');
@@ -239,8 +241,9 @@ function Studio({ refId }: { refId: string }) {
           <section className="panel">
             <header><h2>{editing.parent ? 'Edit as new version' : 'New draft'}</h2></header>
             <div className="body stack">
-              <textarea rows={6} value={editing.body} onChange={(e) => setEditing({ ...editing, body: e.target.value })} aria-label="Draft text" autoFocus />
+              <textarea ref={draftBox} rows={6} value={editing.body} onChange={(e) => setEditing({ ...editing, body: e.target.value })} aria-label="Draft text" autoFocus />
               <div className="row">
+                <button type="button" onClick={() => markVerify(draftBox.current, (body) => setEditing({ ...editing, body }))} title="Wrap the selected words in [verify: …] so they are flagged until checked">Mark for verification</button>
                 <button className="primary" disabled={!editing.body.trim() || saveDraft.isPending} onClick={() => saveDraft.mutate({ body: editing.body, parentDraftId: editing.parent })}>Save as new version</button>
                 <button onClick={() => setEditing(null)}>Cancel</button>
               </div>
@@ -279,9 +282,15 @@ function Studio({ refId }: { refId: string }) {
               </div>
             ))}
             {diff && compareDraft && activeDraft ? (
-              <div className="notice">
-                <div className="small mono">v{compareDraft.version} → v{activeDraft.version}</div>
-                <p className="diff caption-text">{diff.map((p, i) => (p.kind === 'same' ? <span key={i}>{p.text}</span> : p.kind === 'add' ? <ins key={i}>{p.text}</ins> : <del key={i}>{p.text}</del>))}</p>
+              <div className="notice compare" aria-label={`Compare v${compareDraft.version} with v${activeDraft.version}`}>
+                <div>
+                  <div className="small mono">v{compareDraft.version} (removed text struck through)</div>
+                  <p className="diff caption-text">{diff.map((p, i) => (p.kind === 'same' ? <span key={i}>{p.text}</span> : p.kind === 'del' ? <del key={i}>{p.text}</del> : null))}</p>
+                </div>
+                <div>
+                  <div className="small mono">v{activeDraft.version} (added text underlined)</div>
+                  <p className="diff caption-text">{diff.map((p, i) => (p.kind === 'same' ? <span key={i}>{p.text}</span> : p.kind === 'add' ? <ins key={i}>{p.text}</ins> : null))}</p>
+                </div>
               </div>
             ) : null}
           </div>
@@ -290,10 +299,12 @@ function Studio({ refId }: { refId: string }) {
         <section className="panel">
           <header><h2>Final caption</h2><span className="small muted">{ctx.data.finalCaption ? `saved ${fmtDateTime(ctx.data.finalCaption.updated_at)}` : 'not saved'}</span></header>
           <div className="body stack">
-            <textarea rows={7} value={finalText} onChange={(e) => setFinalText(e.target.value)} aria-label="Final caption" placeholder="Your final text. Stored apart from drafts." />
+            <textarea ref={finalBox} rows={7} value={finalText} onChange={(e) => setFinalText(e.target.value)} aria-label="Final caption" placeholder="Your final text. Stored apart from drafts." />
+            {/\[verify/i.test(finalText) ? <p className="notice warn small">This text still contains [verify: …] markers. Check those facts and remove the markers before you publish; Copy and Export include them as written.</p> : null}
             {flags && flags.length ? <ul className="flags">{flags.map((f, i) => <li key={i}><b>{f.claim}</b>: {f.reason}</li>)}</ul> : flags ? <p className="small muted">No unsupported years, numbers, names or evaluative claims detected. This is a safety net, not proof.</p> : null}
             <div className="row">
               <button className="primary" disabled={!finalText.trim() || !dirty || saveFinal.isPending} onClick={() => saveFinal.mutate()}>Save final caption</button>
+              <button onClick={() => markVerify(finalBox.current, setFinalText)} title="Wrap the selected words in [verify: …] so they are flagged until checked">Mark for verification</button>
               <button disabled={!finalText.trim()} onClick={copy}>Copy</button>
               <button disabled={!savedFinal} onClick={exportFile} title={savedFinal ? 'Download a text file for manual publication' : 'Save a final caption first'}>Export .txt</button>
               <span className="small muted">{finalText.length} characters</span>
@@ -393,4 +404,19 @@ function Sel({ label, value, onChange, opts }: { label: string; value: string; o
       <select value={value} onChange={(e) => onChange(e.target.value)}>{opts.map((o) => <option key={o} value={o}>{o.replace(/_/g, ' ')}</option>)}</select>
     </label>
   );
+}
+
+/**
+ * Wraps the selected words in [verify: …], the same marker the drafting rules use, so the claim is
+ * listed under "to verify" until the editor checks it and removes the marker.
+ */
+function markVerify(box: HTMLTextAreaElement | null, set: (text: string) => void) {
+  if (!box) return;
+  const { selectionStart: a, selectionEnd: b, value } = box;
+  const picked = value.slice(a, b).trim();
+  if (!picked) {
+    box.focus();
+    return;
+  }
+  set(`${value.slice(0, a)}[verify: ${picked}]${value.slice(b)}`);
 }

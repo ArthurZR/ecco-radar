@@ -106,6 +106,17 @@ export async function getReferenceDetail(refNumber: number) {
   const [config, profile, detectedText] = await Promise.all([getActiveRankingConfig(), getEditorialProfile(), getDetectedText(row.id)]);
   const score = scoreReference(toScorable(row), profile, config.weights, { mode: 'adjacent', novelty: 0.5, historicalExposurePenalty: config.diversity.historical_exposure_penalty });
 
+  // Connections between this reference's entities in the knowledge graph (for example a Wikidata
+  // "movement" statement), so a chain like reference → artist → movement can be followed.
+  const linked = entities.rows.filter((e: { evidence: string }) => e.evidence !== 'editor_rejected').map((e: { entity_id: string }) => e.entity_id);
+  const entityRelations = await db().query(
+    `SELECT f.id AS from_id, f.label AS from_label, r.predicate, t.id AS to_id, t.label AS to_label, t.external_url AS to_url,
+            r.evidence, r.provenance, r.provenance_url
+       FROM entity_relations r JOIN cultural_entities f ON f.id = r.from_entity_id JOIN cultural_entities t ON t.id = r.to_entity_id
+      WHERE (r.from_entity_id = ANY($1::uuid[]) OR r.to_entity_id = ANY($1::uuid[])) AND r.evidence <> 'editor_rejected'
+      ORDER BY f.label, r.predicate LIMIT 40`,
+    [linked],
+  );
   return {
     reference: {
       id: row.id,
@@ -126,6 +137,7 @@ export async function getReferenceDetail(refNumber: number) {
       discoveredAt: row.discovered_at,
       previewUrl: row.preview_url,
       thumbnailUrl: row.thumbnail_url,
+      cachedPreviewUrl: row.cached_preview_path ? `/api/references/${row.ref_number}/cached-preview` : null,
       mediaType: row.media_type,
       width: row.width,
       height: row.height,
@@ -148,6 +160,7 @@ export async function getReferenceDetail(refNumber: number) {
     detectedText,
     tags: tags.rows,
     entities: entities.rows,
+    entityRelations: entityRelations.rows,
     duplicates: relations.rows
       .filter((r) => ['duplicate_candidate', 'confirmed_duplicate', 'not_duplicate'].includes(r.kind))
       .map((r) => ({ kind: r.kind, method: r.method, score: r.score, evidence: r.evidence, other: m.get(r.other_id) ?? null })),

@@ -4,6 +4,7 @@ import { withTransaction } from '../../db/pool.js';
 import { AppError, badRequest, notFound } from '../../lib/errors.js';
 import { invalidateProfile } from '../ranking/profile.js';
 import { STATUSES, canTransition, REJECTION_REASONS, type Status } from './status.js';
+import { parseRefNumber } from './types.js';
 
 /**
  * Editorial actions. Each one is recorded in editorial_decisions and audit_events.
@@ -83,11 +84,14 @@ export async function addNote(id: string, body: string, actorId: string | null) 
   });
 }
 
-export async function updateNote(id: string, noteId: string, body: string) {
+export async function updateNote(id: string, noteId: string, body: string, actorId: string | null = null) {
   const text = z.string().trim().min(1).max(20000).parse(body);
   return withTransaction(async (c) => {
     const r = await c.query('UPDATE research_notes SET body = $3, updated_at = now() WHERE id = $2 AND reference_id = $1', [id, noteId, text]);
     if (!r.rowCount) throw notFound('Note');
+    await c.query(`INSERT INTO editorial_decisions(reference_id, actor_id, decision_type, payload) VALUES ($1,$2,'note_edited',$3)`, [
+      id, actorId, JSON.stringify({ noteId }),
+    ]);
     return { ok: true };
   });
 }
@@ -126,7 +130,8 @@ export const ReportSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('attribution_incorrect'), notes: z.string().max(5000).optional() }),
   z.object({ kind: z.literal('attribution_confirmed'), notes: z.string().max(5000).optional() }),
   z.object({ kind: z.literal('irrelevant'), notes: z.string().max(5000).optional(), scope: z.enum(['item', 'topic', 'creator', 'source']).default('item') }),
-  z.object({ kind: z.literal('duplicate_of'), otherId: z.string().uuid(), notes: z.string().max(5000).optional() }),
+  // The other reference by internal id, or by its permanent number (#00042 or 42) when the editor types it.
+  z.object({ kind: z.literal('duplicate_of'), otherId: z.string().uuid().optional(), otherRef: z.string().max(20).optional(), notes: z.string().max(5000).optional() }),
   z.object({ kind: z.literal('not_duplicate_of'), otherId: z.string().uuid() }),
 ]);
 
@@ -147,8 +152,16 @@ export async function report(id: string, input: z.infer<typeof ReportSchema>, ac
         await c.query(`INSERT INTO editorial_decisions(reference_id, actor_id, decision_type, reason_scope, notes) VALUES ($1,$2,'report_irrelevant',$3,$4)`, [id, actorId, body.scope, body.notes ?? null]);
         break;
       case 'duplicate_of': {
-        if (body.otherId === id) throw badRequest('A reference cannot duplicate itself');
-        const other = await lockRef(c, body.otherId);
+        let otherId = body.otherId;
+        if (!otherId && body.otherRef !== undefined) {
+          const n = parseRefNumber(body.otherRef);
+          if (n === null) throw badRequest('Type a reference number such as #00042');
+          otherId = (await c.query<{ id: string }>('SELECT id FROM reference_items WHERE ref_number = $1', [n])).rows[0]?.id;
+          if (!otherId) throw notFound(`Reference ${body.otherRef}`);
+        }
+        if (!otherId) throw badRequest('Say which reference this duplicates');
+        if (otherId === id) throw badRequest('A reference cannot duplicate itself');
+        const other = await lockRef(c, otherId);
         const grp = await c.query<{ g: string }>(
           `SELECT coalesce((SELECT duplicate_group_id FROM reference_items WHERE id = $1), (SELECT duplicate_group_id FROM reference_items WHERE id = $2), gen_random_uuid()) AS g`,
           [other.id, id],
@@ -174,15 +187,40 @@ export async function report(id: string, input: z.infer<typeof ReportSchema>, ac
   });
 }
 
+export const REFERENCE_PREDICATES = ['created_by', 'published_in', 'depicts', 'associated_with', 'appeared_in', 'uses_technique', 'belongs_to_period', 'related_movement'] as const;
+
 export const RelationshipDecisionSchema = z.object({
   entityId: z.string().uuid(),
   predicate: z.string().max(60),
-  verdict: z.enum(['confirm', 'reject']),
+  verdict: z.enum(['confirm', 'reject', 'correct']),
+  /** For "correct": what the relationship actually is. */
+  correctPredicate: z.enum(REFERENCE_PREDICATES).optional(),
 });
 
 export async function decideRelationship(id: string, input: z.infer<typeof RelationshipDecisionSchema>, actorId: string | null) {
   const body = RelationshipDecisionSchema.parse(input);
   return withTransaction(async (c) => {
+    if (body.verdict === 'correct') {
+      if (!body.correctPredicate) throw badRequest('Say what the relationship is');
+      if (body.correctPredicate === body.predicate) throw badRequest('That is the relationship already recorded; use Confirm');
+      // The suggestion is kept as rejected; the corrected link is the editor's own claim.
+      const old = await c.query(
+        `UPDATE reference_entities SET evidence = 'editor_rejected' WHERE reference_id = $1 AND entity_id = $2 AND predicate = $3 RETURNING provenance`,
+        [id, body.entityId, body.predicate],
+      );
+      if (!old.rowCount) throw notFound('Relationship');
+      await c.query(
+        `INSERT INTO reference_entities(reference_id, entity_id, predicate, evidence, provenance)
+         VALUES ($1,$2,$3,'editor_confirmed',$4)
+         ON CONFLICT (reference_id, entity_id, predicate) DO UPDATE SET evidence = 'editor_confirmed'`,
+        [id, body.entityId, body.correctPredicate, `Corrected by the editor (suggested as "${body.predicate.replace(/_/g, ' ')}")`],
+      );
+      await c.query(`INSERT INTO editorial_decisions(reference_id, actor_id, decision_type, payload) VALUES ($1,$2,'relationship_correct',$3)`, [
+        id, actorId, JSON.stringify({ entityId: body.entityId, from: body.predicate, to: body.correctPredicate }),
+      ]);
+      invalidateProfile();
+      return { ok: true };
+    }
     const r = await c.query(
       `UPDATE reference_entities SET evidence = $4 WHERE reference_id = $1 AND entity_id = $2 AND predicate = $3`,
       [id, body.entityId, body.predicate, body.verdict === 'confirm' ? 'editor_confirmed' : 'editor_rejected'],

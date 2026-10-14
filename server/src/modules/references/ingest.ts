@@ -88,6 +88,22 @@ export async function ingestReference(input: DiscoveredItem, ctx: DiscoveryConte
             [row.id, ent, e.predicate, e.provenance],
           );
         }
+        // Inferred links: entities already in the graph whose name appears in this item's own title or
+        // description. They are suggestions until the editor confirms or corrects them, and the
+        // learned preferences ignore them until then.
+        const text = [title, item.description].filter(Boolean).join('\n');
+        if (text) {
+          await c.query(
+            `INSERT INTO reference_entities(reference_id, entity_id, predicate, evidence, confidence, provenance)
+             SELECT $1, e.id, 'associated_with', 'inferred', 0.5, 'Name appears in the source''s title or description (matched by RADAR)'
+               FROM cultural_entities e
+              WHERE length(e.label) >= 5 AND position(lower(e.label) IN lower($2)) > 0
+                AND NOT EXISTS (SELECT 1 FROM reference_entities x WHERE x.reference_id = $1 AND x.entity_id = e.id)
+              ORDER BY length(e.label) DESC LIMIT 5
+             ON CONFLICT DO NOTHING`,
+            [row.id, text],
+          );
+        }
         const sources = [
           { url: item.originalUrl, title: title ?? undefined, kind: 'original_source' as const },
           ...(item.creatorUrl ? [{ url: item.creatorUrl, title: creator ?? undefined, kind: 'creator_page' as const }] : []),

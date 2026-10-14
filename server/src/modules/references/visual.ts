@@ -4,6 +4,7 @@ import { httpClient } from '../sources/registry.js';
 import { enqueue } from '../jobs/queue.js';
 import { invalidateProfile } from '../ranking/profile.js';
 import { detectDuplicates } from './duplicates.js';
+import { cachePreviewIfPermitted } from './preview-cache.js';
 
 const MAX_IMAGE_BYTES = 8_000_000;
 
@@ -35,6 +36,8 @@ export async function analyzeReferenceImage(id: string): Promise<{ ok: boolean; 
     const res = await httpClient().getBytes(url, { maxBytes: MAX_IMAGE_BYTES, rateKey: `image:${row.source_id}`, ratePerMinute: 30, timeoutMs: 20_000, headers: { accept: 'image/*' } });
     if (!/^image\//i.test(res.contentType)) return record(`Preview is not an image (${res.contentType || 'unknown type'})`);
     analysis = await analyzeImage(res.body);
+    // A local copy only where the source or the item's licence permits it; never fatal.
+    await cachePreviewIfPermitted(id, res.body).catch(() => null);
   } catch (e) {
     return record(`Could not analyse preview: ${(e as Error).message}`);
   }
@@ -76,8 +79,9 @@ export async function resetVisualAnalysis(onlyFailed: boolean): Promise<number> 
 }
 
 export async function visualAnalysisStatus() {
-  const r = await db().query<{ analysed: number; failed: number; pending: number; no_preview: number }>(
+  const r = await db().query<{ analysed: number; failed: number; pending: number; no_preview: number; cached: number }>(
     `SELECT count(*) FILTER (WHERE visual_embedding IS NOT NULL)::int AS analysed,
+            count(*) FILTER (WHERE cached_preview_path IS NOT NULL)::int AS cached,
             count(*) FILTER (WHERE visual_error IS NOT NULL)::int AS failed,
             count(*) FILTER (WHERE visual_analyzed_at IS NULL AND coalesce(thumbnail_url, preview_url) IS NOT NULL)::int AS pending,
             count(*) FILTER (WHERE coalesce(thumbnail_url, preview_url) IS NULL)::int AS no_preview

@@ -17,6 +17,10 @@ const SETTINGS = {
     default: true,
     description: 'Read text visible in each reference’s image with local OCR (Tesseract, English). Results are suggestions you confirm or correct. Nothing is sent to any third party.',
   },
+  preview_caching_enabled: {
+    default: true,
+    description: 'Keep a small local copy (640px) of previews that may be reused: public domain, CC0, CC BY and CC BY-SA items, or sources that permit caching. Used only if the original link stops working. Everything else stays a link to the source.',
+  },
 } as const;
 type Key = keyof typeof SETTINGS;
 

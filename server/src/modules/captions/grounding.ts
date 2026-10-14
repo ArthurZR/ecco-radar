@@ -102,7 +102,7 @@ export function flagUnsupported(text: string, sheet: FactSheet): VerificationFla
       flags.push({ claim, reason });
     }
   };
-  for (const m of text.match(/\[verify[^\]]*\]/gi) ?? []) add(m, 'Marked for verification by the draft');
+  for (const m of text.match(/\[verify[^\]]*\]/gi) ?? []) add(m, 'Marked for verification');
   for (const y of text.match(/\b(1[5-9]\d\d|20\d\d)s?\b/g) ?? []) {
     if (!corpus.includes(y.replace(/s$/, ''))) add(y, 'Year not found in the source metadata or notes');
   }

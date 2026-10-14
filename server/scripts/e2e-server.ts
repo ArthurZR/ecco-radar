@@ -52,6 +52,9 @@ const seeds = [
   { title: 'SYNTHETIC Game magazine advert', publishedRaw: '1999', tags: ['video games', 'print'] },
   { title: 'SYNTHETIC Personal homepage banner', creatorName: 'Test Designer C', publishedRaw: '2004', tags: ['web', 'y2k'] },
   { title: 'SYNTHETIC Album sleeve detail', creatorName: 'Test Designer D', publishedRaw: '2002', tags: ['music', 'typography'] },
+  { title: 'SYNTHETIC Arcade cabinet marquee', creatorName: 'Test Designer E', publishedRaw: '1998', tags: ['video games', 'print'] },
+  { title: 'SYNTHETIC Webring navigation bar', creatorName: 'Test Designer F', publishedRaw: '2000', tags: ['web', 'y2k'] },
+  { title: 'SYNTHETIC Mixtape cover scan', creatorName: 'Test Designer G', publishedRaw: '2001', tags: ['music', 'typography'] },
 ];
 for (const [i, s] of seeds.entries()) {
   await ingestReference(

@@ -5,6 +5,7 @@ import { api, qs } from '../lib/api';
 import { STATUS_LABEL, type FeedResponse, type Status } from '../lib/types';
 import { fmtDate, fmtDateTime, fmtNum } from '../lib/format';
 import { Empty, ErrorBox, Loading, PageHead, Seg, StatusBadge, Thumb } from '../components/ui';
+import { Clusters } from '../components/Clusters';
 
 interface Decisions {
   decisions: { id: string; decision_type: string; reason_code: string | null; reason_scope: string | null; notes: string | null; previous_status: string | null; new_status: string | null; created_at: string; ref_number: number; title: string | null; creator_name: string | null; source_id: string }[];
@@ -14,13 +15,13 @@ interface Decisions {
 const ALL = Object.keys(STATUS_LABEL) as Status[];
 
 export function ArchivePage() {
-  const [view, setView] = useState<'items' | 'decisions'>('items');
+  const [view, setView] = useState<'items' | 'groups' | 'decisions'>('items');
   return (
     <>
       <PageHead title="Archive" sub="Every reference and every decision, permanently numbered">
-        <Seg label="View" value={view} onChange={setView} options={[{ value: 'items', label: 'References' }, { value: 'decisions', label: 'Decision history' }]} />
+        <Seg label="View" value={view} onChange={setView} options={[{ value: 'items', label: 'References' }, { value: 'groups', label: 'Groups' }, { value: 'decisions', label: 'Decision history' }]} />
       </PageHead>
-      <div className="content">{view === 'items' ? <Items /> : <DecisionHistory />}</div>
+      <div className="content">{view === 'items' ? <Items /> : view === 'groups' ? <Clusters /> : <DecisionHistory />}</div>
     </>
   );
 }

@@ -24,10 +24,10 @@ test('feed: permanent IDs, keyboard approval with undo, and the research view', 
   await signIn(page);
   await page.goto('/?sort=ref_number');
   const cards = page.locator('article.card');
-  await expect(cards).toHaveCount(5);
+  await expect(cards).toHaveCount(8);
   // ID order is newest first; the IDs never change whatever the ranking does.
-  await expect(card(page, 0).locator('.refid')).toHaveText('#00005');
-  await expect(card(page, 4).locator('.refid')).toHaveText('#00001');
+  await expect(card(page, 0).locator('.refid')).toHaveText('#00008');
+  await expect(card(page, 7).locator('.refid')).toHaveText('#00001');
 
   // a approves the selected (first) reference for editorial consideration; Undo reverts it.
   await page.locator('body').press('a');
@@ -42,7 +42,7 @@ test('feed: permanent IDs, keyboard approval with undo, and the research view', 
 
   // Research view shows every reason and the attribution basis, and is remembered after a reload.
   await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Research' }).click();
-  await expect(page.locator('.research-list article.card')).toHaveCount(5);
+  await expect(page.locator('.research-list article.card')).toHaveCount(8);
   await expect(page.getByText('Creator not stated by the source')).toBeVisible();
   await page.reload();
   await expect(page.locator('.research-list')).toBeVisible();
@@ -58,13 +58,13 @@ test('reject asks for a reason and keeps the item in the archive', async ({ page
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: /^Reject/ }).click();
-  await expect(page.locator('article.card')).toHaveCount(4);
+  await expect(page.locator('article.card')).toHaveCount(7);
 
   await page.goto('/archive');
-  await expect(page.getByText('SYNTHETIC Game magazine advert')).toBeVisible();
+  await expect(page.getByText('SYNTHETIC Arcade cabinet marquee')).toBeVisible();
 });
 
-test('detail: the original source link and a research note', async ({ page }) => {
+test('detail: the original source link, a research note and honest performance context', async ({ page }) => {
   await signIn(page);
   await page.goto('/ref/1');
   await expect(page.getByText('#00001').first()).toBeVisible();
@@ -72,6 +72,23 @@ test('detail: the original source link and a research note', async ({ page }) =>
   await page.getByLabel('New note').fill('SYNTHETIC note: checked the source page.');
   await page.getByRole('button', { name: 'Add note' }).click();
   await expect(page.getByText('SYNTHETIC note: checked the source page.')).toBeVisible();
+  // Performance context is honest about missing analytics.
+  await expect(page.getByText(/No post-level analytics imported yet/)).toBeVisible();
+});
+
+test('archive groups: references are grouped by wording, and colour grouping waits for analysed images', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/archive');
+  await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Groups' }).click();
+  await expect(page.getByRole('heading', { name: 'Group 1' })).toBeVisible();
+  await expect(page.getByText(/rejected references left out/)).toBeVisible();
+  await page.locator('.cluster-members a').first().click();
+  await expect(page).toHaveURL(/\/ref\/\d+/);
+
+  await page.goto('/archive');
+  await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Groups' }).click();
+  await page.getByRole('group', { name: 'Group by' }).getByRole('button', { name: 'Colour & tone' }).click();
+  await expect(page.getByText('Not enough to group yet')).toBeVisible();
 });
 
 test('caption studio to manual publication never contacts a platform', async ({ page }) => {

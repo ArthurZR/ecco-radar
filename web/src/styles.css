@@ -284,3 +284,19 @@ dl.kv dd { margin: 0; overflow-wrap: anywhere; }
 .login { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--panel); padding: 16px; }
 .login form { width: min(360px, 100%); }
 .archthumb, td .noimg { width: 44px; height: 44px; object-fit: cover; font-size: 8px; padding: 2px; aspect-ratio: auto; }
+
+/* Archive → Groups */
+.clusters > .panel { margin: 0; }
+.clusters { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 12px; align-items: start; }
+.stackbar { display: flex; gap: 2px; height: 8px; background: var(--white); }
+.stackbar i { display: block; min-width: 4px; background: var(--rule); }
+.stackbar i.st-approved_consideration, .stackbar i.st-caption_draft, .stackbar i.st-reviewed,
+.stackbar i.st-approved_publication, .stackbar i.st-manually_published { background: var(--green); }
+.stackbar i.st-saved { background: var(--ink-3); }
+.stackbar i.st-archived { background: var(--panel-2); }
+.cluster-members { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.cluster-members a { display: flex; flex-direction: column; gap: 2px; text-decoration: none; color: inherit; }
+.cluster-members a:hover .cluster-title { text-decoration: underline; }
+.cluster-members img, .cluster-members .noimg { width: 100%; aspect-ratio: 1; object-fit: cover; background: var(--panel-2); display: block; }
+.cluster-title { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.25; }
+.post-row { border-top: 1px solid var(--rule); padding: 6px 0; display: flex; flex-direction: column; gap: 2px; }

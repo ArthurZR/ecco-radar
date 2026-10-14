@@ -11,6 +11,8 @@ import {
 import { STATUS_META, STATUSES, REJECTION_REASONS } from './status.js';
 import { parseRefNumber } from './types.js';
 import { analyzeReferenceImage } from './visual.js';
+import { clusterReferences } from './clusters.js';
+import { referencePerformance } from '../insights/reference-performance.js';
 
 const RefParam = z.object({ ref: z.string() });
 
@@ -92,6 +94,17 @@ export async function referenceRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // Facets for filter controls
+  app.get('/api/references/:ref/performance', async (req) => {
+    const id = await idForRef(RefParam.parse(req.params).ref);
+    const r = await db().query<{ text_embedding: number[] | null }>('SELECT text_embedding FROM reference_items WHERE id = $1', [id]);
+    return referencePerformance(id, r.rows[0]?.text_embedding ?? null);
+  });
+
+  app.get('/api/clusters', async (req) => {
+    const { basis } = z.object({ basis: z.enum(['text', 'visual']).default('text') }).parse(req.query);
+    return clusterReferences(basis);
+  });
+
   app.get('/api/references-facets', async () => {
     const [sources, statuses, media, tags, creators] = await Promise.all([
       db().query(`SELECT s.id, s.name, count(r.id)::int AS n FROM sources s LEFT JOIN reference_items r ON r.source_id = s.id AND r.deleted_at IS NULL GROUP BY s.id ORDER BY s.name`),
